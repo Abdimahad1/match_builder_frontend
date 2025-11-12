@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import PageLayout from '../components/PageLayout';
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 // Curated global leagues with official team logos (sample set)
 const GLOBAL_LEAGUES = [
   {
@@ -65,7 +67,7 @@ const Settings = () => {
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await fetch('http://localhost:5000/api/auth/me', {
+        const res = await fetch(`${API_URL}/api/auth/me`, {
           headers: {
             'Content-Type': 'application/json',
             Authorization: token ? `Bearer ${token}` : ''
@@ -130,7 +132,7 @@ const Settings = () => {
           logoUrl: selectedTeamLogoUrl
         }
       };
-      const res = await fetch('http://localhost:5000/api/auth/settings', {
+      const res = await fetch(`${API_URL}/api/auth/settings`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import PageLayout from '../components/PageLayout';
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 const months = [
   { id: 'all', name: 'All Months' },
   { id: 'jan', name: 'January' },
@@ -174,7 +176,7 @@ const Leagues = () => {
         setLoading(true);
         setError(null);
         const token = localStorage.getItem('token');
-        const res = await fetch('http://localhost:5000/api/leagues', {
+        const res = await fetch(`${API_URL}/api/leagues`, {
           headers: token ? { Authorization: `Bearer ${token}` } : undefined
         });
         const data = await res.json();

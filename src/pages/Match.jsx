@@ -31,6 +31,8 @@ const tabs = [
   { id: "scheduled", label: "Scheduled", icon: "⏰" },
 ];
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 const Match = () => {
   const [leagues, setLeagues] = useState([]);
   const [myLeagues, setMyLeagues] = useState([]);
@@ -100,8 +102,8 @@ const Match = () => {
       try {
         const token = localStorage.getItem('token');
         const [leaguesRes, myLeaguesRes] = await Promise.all([
-          axios.get("http://localhost:5000/api/leagues"),
-          axios.get("http://localhost:5000/api/leagues/my-leagues", {
+          axios.get(`${API_URL}/api/leagues`),
+          axios.get(`${API_URL}/api/leagues/my-leagues`, {
             headers: { Authorization: `Bearer ${token}` }
           })
         ]);
@@ -192,7 +194,7 @@ const Match = () => {
         return;
       }
 
-      const res = await axios.post("http://localhost:5000/api/leagues/join", 
+      const res = await axios.post(`${API_URL}/api/leagues/join`, 
         {
           joinCode: selectedLeague.joinCode,
           teamName: preferredTeamName,
@@ -222,8 +224,8 @@ const Match = () => {
         
         // Refresh leagues data
         const [leaguesRes, myLeaguesRes] = await Promise.all([
-          axios.get("http://localhost:5000/api/leagues"),
-          axios.get("http://localhost:5000/api/leagues/my-leagues", {
+          axios.get(`${API_URL}/api/leagues`),
+          axios.get(`${API_URL}/api/leagues/my-leagues`, {
             headers: { Authorization: `Bearer ${token}` }
           })
         ]);
@@ -266,7 +268,7 @@ const Match = () => {
         return;
       }
 
-      const res = await axios.post("http://localhost:5000/api/leagues/join", 
+      const res = await axios.post(`${API_URL}/api/leagues/join`, 
         {
           joinCode: joinCode.trim().toUpperCase(),
           teamName: preferredTeamName,
@@ -299,8 +301,8 @@ const Match = () => {
         
         // Refresh the leagues data
         const [leaguesRes, myLeaguesRes] = await Promise.all([
-          axios.get("http://localhost:5000/api/leagues"),
-          axios.get("http://localhost:5000/api/leagues/my-leagues", {
+          axios.get(`${API_URL}/api/leagues`),
+          axios.get(`${API_URL}/api/leagues/my-leagues`, {
             headers: { Authorization: `Bearer ${token}` }
           })
         ]);
@@ -338,7 +340,7 @@ const Match = () => {
     try {
       setLoading(true);
       const token = localStorage.getItem('token');
-      const res = await axios.put(`http://localhost:5000/api/leagues/match/${matchId}/result`, 
+      const res = await axios.put(`${API_URL}/api/leagues/match/${matchId}/result`, 
         {
           homeGoals: parseInt(homeGoals),
           awayGoals: parseInt(awayGoals)
@@ -354,8 +356,8 @@ const Match = () => {
         setTempScores({});
         // Refresh data
         const [leaguesRes, myLeaguesRes] = await Promise.all([
-          axios.get("http://localhost:5000/api/leagues"),
-          axios.get("http://localhost:5000/api/leagues/my-leagues", {
+          axios.get(`${API_URL}/api/leagues`),
+          axios.get(`${API_URL}/api/leagues/my-leagues`, {
             headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
           })
         ]);
@@ -411,7 +413,7 @@ const Match = () => {
       setGeneratingMatches(true);
       const token = localStorage.getItem('token');
       const res = await axios.post(
-        `http://localhost:5000/api/leagues/${leagueId}/generate-matches`,
+        `${API_URL}/api/leagues/${leagueId}/generate-matches`,
         {},
         {
           headers: { Authorization: `Bearer ${token}` }
@@ -422,8 +424,8 @@ const Match = () => {
         showAlert("Matches generated successfully! League is now active.", true);
 
         const [leaguesRes, myLeaguesRes] = await Promise.all([
-          axios.get("http://localhost:5000/api/leagues"),
-          axios.get("http://localhost:5000/api/leagues/my-leagues", {
+          axios.get(`${API_URL}/api/leagues`),
+          axios.get(`${API_URL}/api/leagues/my-leagues`, {
             headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
           })
         ]);

@@ -26,6 +26,8 @@ import {
 } from "lucide-react";
 import PageLayout from "../components/PageLayout";
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 const LEAGUE_LOGO_OPTIONS = [
   "https://api.dicebear.com/7.x/shapes/svg?seed=PremierChampions&backgroundColor=yellow,orange,red&size=256",
   "https://api.dicebear.com/7.x/shapes/svg?seed=EliteLeague&backgroundColor=blue,cyan,indigo&size=256",
@@ -153,7 +155,7 @@ export default function CreateLeague() {
     try {
       setLoading(true);
       const token = localStorage.getItem('token');
-      const res = await fetch("http://localhost:5000/api/leagues", {
+      const res = await fetch(`${API_URL}/api/leagues`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -197,8 +199,8 @@ export default function CreateLeague() {
       const token = localStorage.getItem('token');
       const method = editLeagueId ? "PUT" : "POST";
       const url = editLeagueId
-        ? `http://localhost:5000/api/leagues/${editLeagueId}`
-        : "http://localhost:5000/api/leagues";
+        ? `${API_URL}/api/leagues/${editLeagueId}`
+        : `${API_URL}/api/leagues`;
 
       const res = await fetch(url, {
         method,
@@ -257,7 +259,7 @@ export default function CreateLeague() {
     if (!window.confirm("Are you sure you want to delete this league? This will remove all participants and matches.")) return;
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch(`http://localhost:5000/api/leagues/${id}`, { 
+      const res = await fetch(`${API_URL}/api/leagues/${id}`, { 
         method: "DELETE",
         headers: {
           'Authorization': `Bearer ${token}`
@@ -279,7 +281,7 @@ export default function CreateLeague() {
     try {
       setLoading(true);
       const token = localStorage.getItem('token');
-      const res = await fetch(`http://localhost:5000/api/leagues/${leagueId}/generate-matches`, {
+      const res = await fetch(`${API_URL}/api/leagues/${leagueId}/generate-matches`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -291,7 +293,7 @@ export default function CreateLeague() {
       if (data.success) {
         showAlert("Matches generated successfully! League is now active.", true);
         await fetchLeagues();
-        const freshLeagues = await (await fetch("http://localhost:5000/api/leagues")).json();
+        const freshLeagues = await (await fetch(`${API_URL}/api/leagues`)).json();
         if (freshLeagues.success) {
           const league = freshLeagues.data.find((l) => l._id === leagueId);
           setSelectedLeagueForMatches(league);
@@ -395,7 +397,7 @@ export default function CreateLeague() {
     try {
       setSavingResult(true);
       const token = localStorage.getItem('token');
-      const res = await fetch(`http://localhost:5000/api/leagues/match/${matchId}/result`, {
+      const res = await fetch(`${API_URL}/api/leagues/match/${matchId}/result`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -407,7 +409,7 @@ export default function CreateLeague() {
       if (data.success) {
         showAlert("Match result saved.", true);
         await fetchLeagues();
-        const fresh = await (await fetch("http://localhost:5000/api/leagues", {
+        const fresh = await (await fetch(`${API_URL}/api/leagues`, {
           headers: { 'Authorization': `Bearer ${token}` }
         })).json();
         if (fresh.success && selectedLeagueForMatches) {
@@ -441,7 +443,7 @@ export default function CreateLeague() {
           joinedAt: p.joinedAt
         }));
       const token = localStorage.getItem('token');
-      const res = await fetch(`http://localhost:5000/api/leagues/${league._id}`, {
+      const res = await fetch(`${API_URL}/api/leagues/${league._id}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",

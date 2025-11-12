@@ -5,6 +5,8 @@ import axios from 'axios';
 import { Calendar, Trophy, Users, TrendingUp, Play, CheckSquare, Clock } from 'lucide-react';
 import PageLayout from '../components/PageLayout';
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 const Dashboard = () => {
   const [activeTab, setActiveTab] = useState("all");
   const [user, setUser] = useState(null);
@@ -40,13 +42,13 @@ const Dashboard = () => {
 
         // Fetch current user from API
         const [userRes, leaguesRes] = await Promise.all([
-          axios.get("http://localhost:5000/api/auth/me", {
+          axios.get(`${API_URL}/api/auth/me`, {
             headers: { Authorization: `Bearer ${token}` }
           }).catch((err) => {
             console.error("Error fetching user:", err);
             return { data: { success: false } };
           }),
-          axios.get("http://localhost:5000/api/leagues/my-leagues", {
+          axios.get(`${API_URL}/api/leagues/my-leagues`, {
             headers: { Authorization: `Bearer ${token}` }
           }).catch((err) => {
             console.error("Error fetching leagues:", err);

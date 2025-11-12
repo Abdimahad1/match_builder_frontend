@@ -4,6 +4,8 @@ import PageLayout from '../components/PageLayout';
 import { useNavigate } from 'react-router-dom'; // <-- import hook
 import { useEffect, useMemo, useState } from 'react';
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 const Admin = () => {
 const navigate = useNavigate(); // <-- hook
 
@@ -43,7 +45,7 @@ const navigate = useNavigate(); // <-- hook
   useEffect(() => {
     const loadStats = async () => {
       try {
-        const res = await fetch('http://localhost:5000/api/auth/stats', {
+        const res = await fetch(`${API_URL}/api/auth/stats`, {
           headers: {
             'Content-Type': 'application/json',
             'Authorization': token ? `Bearer ${token}` : ''
@@ -71,7 +73,7 @@ const navigate = useNavigate(); // <-- hook
   const fetchUsers = async () => {
     try {
       setUsersLoading(true);
-      const res = await fetch('http://localhost:5000/api/auth/users', {
+      const res = await fetch(`${API_URL}/api/auth/users`, {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': token ? `Bearer ${token}` : ''
@@ -103,7 +105,7 @@ const navigate = useNavigate(); // <-- hook
     }
     try {
       setCreateBusy(true);
-      const res = await fetch('http://localhost:5000/api/auth/users', {
+      const res = await fetch(`${API_URL}/api/auth/users`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -122,7 +124,7 @@ const navigate = useNavigate(); // <-- hook
       // refresh stats to update counts
       setLoadingStats(true);
       try {
-        const sres = await fetch('http://localhost:5000/api/auth/stats', {
+        const sres = await fetch(`${API_URL}/api/auth/stats`, {
           headers: { 'Authorization': token ? `Bearer ${token}` : '' }
         });
         const sdata = await sres.json();
@@ -170,7 +172,7 @@ const navigate = useNavigate(); // <-- hook
         role: editForm.role
       };
       if (editForm.password) payload.password = editForm.password;
-      const res = await fetch(`http://localhost:5000/api/auth/users/${id}`, {
+      const res = await fetch(`${API_URL}/api/auth/users/${id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -185,7 +187,7 @@ const navigate = useNavigate(); // <-- hook
       }
       await fetchUsers();
       // refresh stats as well
-      const sres = await fetch('http://localhost:5000/api/auth/stats', {
+      const sres = await fetch(`${API_URL}/api/auth/stats`, {
         headers: { 'Authorization': token ? `Bearer ${token}` : '' }
       });
       const sdata = await sres.json();
@@ -209,7 +211,7 @@ const navigate = useNavigate(); // <-- hook
   const deleteUser = async (id) => {
     if (!confirm('Delete this user? This action cannot be undone.')) return;
     try {
-      const res = await fetch(`http://localhost:5000/api/auth/users/${id}`, {
+      const res = await fetch(`${API_URL}/api/auth/users/${id}`, {
         method: 'DELETE',
         headers: {
           'Authorization': token ? `Bearer ${token}` : ''
@@ -222,7 +224,7 @@ const navigate = useNavigate(); // <-- hook
       }
       await fetchUsers();
       // refresh stats
-      const sres = await fetch('http://localhost:5000/api/auth/stats', {
+      const sres = await fetch(`${API_URL}/api/auth/stats`, {
         headers: { 'Authorization': token ? `Bearer ${token}` : '' }
       });
       const sdata = await sres.json();

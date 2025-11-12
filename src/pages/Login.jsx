@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 export default function Login() {
   const navigate = useNavigate();
 
@@ -17,7 +19,7 @@ export default function Login() {
     e.preventDefault();
 
     try {
-      const res = await fetch("http://localhost:5000/api/auth/login", {
+      const res = await fetch(`${API_URL}/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
@@ -37,7 +39,7 @@ export default function Login() {
 
       // ✅ Fetch full user profile (with settings) and cache
       try {
-        const profileRes = await fetch("http://localhost:5000/api/auth/me", {
+        const profileRes = await fetch(`${API_URL}/api/auth/me`, {
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${data.data.token}`
