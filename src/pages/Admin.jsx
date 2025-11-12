@@ -469,8 +469,8 @@ return (<>
   {userModalOpen && (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-3">
       <div className="absolute inset-0 bg-black/50" onClick={() => setUserModalOpen(false)} />
-      <div className="relative bg-white w-full max-w-[900px] max-h-[90vh] rounded-3xl shadow-2xl p-6 md:p-8 border border-slate-200 overflow-y-auto">
-        <div className="flex items-center justify-between mb-4">
+      <div className="relative w-full max-w-[900px] max-h-[95vh] rounded-3xl border border-slate-200 bg-white shadow-2xl flex flex-col overflow-hidden">
+        <div className="sticky top-0 z-10 flex items-center justify-between bg-white/95 backdrop-blur px-6 md:px-8 py-4 border-b border-slate-200">
           <h3 className="text-xl font-bold text-slate-800">User Management</h3>
           <button
             onClick={() => setUserModalOpen(false)}
@@ -479,194 +479,196 @@ return (<>
             Close
           </button>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Create form */}
-          <div className="rounded-2xl border p-4">
-            <h4 className="font-semibold mb-3 text-slate-800">Create New User</h4>
-            {createError && <div className="mb-2 text-sm text-red-600">{createError}</div>}
-            {createSuccess && <div className="mb-2 text-sm text-green-600">{createSuccess}</div>}
-            <form className="space-y-3" onSubmit={handleCreateUser}>
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">Username</label>
-                <input
-                  type="text"
-                  value={createForm.username}
-                  onChange={(e) => setCreateForm({ ...createForm, username: e.target.value })}
-                  className="w-full rounded-xl border px-3 py-2"
-                  placeholder="e.g. admin001"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">Password</label>
-                <input
-                  type={createPwVisible ? 'text' : 'password'}
-                  value={createForm.password}
-                  onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })}
-                  className="w-full rounded-xl border px-3 py-2"
-                  placeholder="********"
-                  required
-                />
+        <div className="flex-1 overflow-y-auto px-6 md:px-8 pb-6 pt-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Create form */}
+            <div className="rounded-2xl border p-4">
+              <h4 className="font-semibold mb-3 text-slate-800">Create New User</h4>
+              {createError && <div className="mb-2 text-sm text-red-600">{createError}</div>}
+              {createSuccess && <div className="mb-2 text-sm text-green-600">{createSuccess}</div>}
+              <form className="space-y-3" onSubmit={handleCreateUser}>
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">Username</label>
+                  <input
+                    type="text"
+                    value={createForm.username}
+                    onChange={(e) => setCreateForm({ ...createForm, username: e.target.value })}
+                    className="w-full rounded-xl border px-3 py-2"
+                    placeholder="e.g. admin001"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">Password</label>
+                  <input
+                    type={createPwVisible ? 'text' : 'password'}
+                    value={createForm.password}
+                    onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })}
+                    className="w-full rounded-xl border px-3 py-2"
+                    placeholder="********"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setCreatePwVisible(v => !v)}
+                    className="mt-2 text-xs text-slate-600 underline"
+                  >
+                    {createPwVisible ? 'Hide password' : 'Show password'}
+                  </button>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">Phone Number</label>
+                  <input
+                    type="tel"
+                    value={createForm.phoneNumber}
+                    onChange={(e) => setCreateForm({ ...createForm, phoneNumber: e.target.value })}
+                    className="w-full rounded-xl border px-3 py-2"
+                    placeholder="+252 61 379 7852"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">Role</label>
+                  <select
+                    value={createForm.role}
+                    onChange={(e) => setCreateForm({ ...createForm, role: e.target.value })}
+                    className="w-full rounded-xl border px-3 py-2 bg-white"
+                  >
+                    <option value="player">Player</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </div>
                 <button
-                  type="button"
-                  onClick={() => setCreatePwVisible(v => !v)}
-                  className="mt-2 text-xs text-slate-600 underline"
+                  type="submit"
+                  disabled={createBusy}
+                  className={`w-full py-2 rounded-xl text-white font-semibold ${createBusy ? 'bg-blue-300' : 'bg-blue-600 hover:bg-blue-700'}`}
                 >
-                  {createPwVisible ? 'Hide password' : 'Show password'}
+                  {createBusy ? 'Creating…' : 'Create User'}
+                </button>
+              </form>
+            </div>
+            {/* Users list */}
+            <div className="rounded-2xl border p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-semibold text-slate-800">Existing Users</h4>
+                <button
+                  onClick={fetchUsers}
+                  className="px-3 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold"
+                >
+                  Refresh
                 </button>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">Phone Number</label>
-                <input
-                  type="tel"
-                  value={createForm.phoneNumber}
-                  onChange={(e) => setCreateForm({ ...createForm, phoneNumber: e.target.value })}
-                  className="w-full rounded-xl border px-3 py-2"
-                  placeholder="+252 61 379 7852"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">Role</label>
-                <select
-                  value={createForm.role}
-                  onChange={(e) => setCreateForm({ ...createForm, role: e.target.value })}
-                  className="w-full rounded-xl border px-3 py-2 bg-white"
-                >
-                  <option value="player">Player</option>
-                  <option value="admin">Admin</option>
-                </select>
-              </div>
-              <button
-                type="submit"
-                disabled={createBusy}
-                className={`w-full py-2 rounded-xl text-white font-semibold ${createBusy ? 'bg-blue-300' : 'bg-blue-600 hover:bg-blue-700'}`}
-              >
-                {createBusy ? 'Creating…' : 'Create User'}
-              </button>
-            </form>
-          </div>
-          {/* Users list */}
-          <div className="rounded-2xl border p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h4 className="font-semibold text-slate-800">Existing Users</h4>
-              <button
-                onClick={fetchUsers}
-                className="px-3 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold"
-              >
-                Refresh
-              </button>
-            </div>
-            <div className="max-h-[380px] overflow-y-auto pr-1">
-              {usersLoading ? (
-                <div className="text-slate-500 text-sm">Loading users…</div>
-              ) : users.length === 0 ? (
-                <div className="text-slate-500 text-sm">No users yet.</div>
-              ) : (
-                <div className="space-y-2">
-                  {users.map(u => {
-                    const isEditing = editingUserId === u._id;
-                    return (
-                      <div key={u._id} className="p-3 rounded-xl border">
-                        {!isEditing ? (
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center">👤</div>
-                              <div>
-                                <div className="font-medium text-slate-800">{u.username}</div>
-                                <div className="text-xs text-slate-500">{u.phoneNumber}</div>
+              <div className="max-h-[380px] overflow-y-auto pr-1">
+                {usersLoading ? (
+                  <div className="text-slate-500 text-sm">Loading users…</div>
+                ) : users.length === 0 ? (
+                  <div className="text-slate-500 text-sm">No users yet.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {users.map(u => {
+                      const isEditing = editingUserId === u._id;
+                      return (
+                        <div key={u._id} className="p-3 rounded-xl border">
+                          {!isEditing ? (
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center">👤</div>
+                                <div>
+                                  <div className="font-medium text-slate-800">{u.username}</div>
+                                  <div className="text-xs text-slate-500">{u.phoneNumber}</div>
+                                </div>
                               </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className={`text-xs px-2 py-1 rounded-full ${u.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'}`}>
-                                {u.role}
-                              </span>
-                              <button
-                                onClick={() => beginEditUser(u)}
-                                className="px-2 py-1 text-xs rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100"
-                              >
-                                Edit
-                              </button>
-                              <button
-                                onClick={() => deleteUser(u._id)}
-                                className="px-2 py-1 text-xs rounded-lg bg-red-50 text-red-700 hover:bg-red-100"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="space-y-2">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                              <div>
-                                <label className="block text-xs text-slate-500 mb-1">Username</label>
-                                <input
-                                  type="text"
-                                  value={editForm.username}
-                                  onChange={(e) => setEditForm({ ...editForm, username: e.target.value })}
-                                  className="w-full rounded-lg border px-3 py-2"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-xs text-slate-500 mb-1">Phone</label>
-                                <input
-                                  type="tel"
-                                  value={editForm.phoneNumber}
-                                  onChange={(e) => setEditForm({ ...editForm, phoneNumber: e.target.value })}
-                                  className="w-full rounded-lg border px-3 py-2"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-xs text-slate-500 mb-1">Role</label>
-                                <select
-                                  value={editForm.role}
-                                  onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}
-                                  className="w-full rounded-lg border px-3 py-2 bg-white"
-                                >
-                                  <option value="player">Player</option>
-                                  <option value="admin">Admin</option>
-                                </select>
-                              </div>
-                              <div>
-                                <label className="block text-xs text-slate-500 mb-1">New Password (optional)</label>
-                                <input
-                                  type={pwVisibleUserId === u._id ? 'text' : 'password'}
-                                  value={editForm.password}
-                                  onChange={(e) => setEditForm({ ...editForm, password: e.target.value })}
-                                  className="w-full rounded-lg border px-3 py-2"
-                                  placeholder="Leave blank to keep current"
-                                />
+                              <div className="flex items-center gap-2">
+                                <span className={`text-xs px-2 py-1 rounded-full ${u.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'}`}>
+                                  {u.role}
+                                </span>
                                 <button
-                                  type="button"
-                                  onClick={() => setPwVisibleUserId(prev => prev === u._id ? null : u._id)}
-                                  className="mt-1 text-xs text-slate-600 underline"
+                                  onClick={() => beginEditUser(u)}
+                                  className="px-2 py-1 text-xs rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100"
                                 >
-                                  {pwVisibleUserId === u._id ? 'Hide' : 'Show'} password
+                                  Edit
+                                </button>
+                                <button
+                                  onClick={() => deleteUser(u._id)}
+                                  className="px-2 py-1 text-xs rounded-lg bg-red-50 text-red-700 hover:bg-red-100"
+                                >
+                                  Delete
                                 </button>
                               </div>
                             </div>
-                            <div className="flex items-center justify-end gap-2">
-                              <button
-                                onClick={cancelEditUser}
-                                className="px-3 py-2 text-xs rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700"
-                              >
-                                Cancel
-                              </button>
-                              <button
-                                onClick={() => saveEditUser(u._id)}
-                                disabled={editBusy}
-                                className={`px-3 py-2 text-xs rounded-lg text-white ${editBusy ? 'bg-blue-300' : 'bg-blue-600 hover:bg-blue-700'}`}
-                              >
-                                {editBusy ? 'Saving…' : 'Save'}
-                              </button>
+                          ) : (
+                            <div className="space-y-2">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                <div>
+                                  <label className="block text-xs text-slate-500 mb-1">Username</label>
+                                  <input
+                                    type="text"
+                                    value={editForm.username}
+                                    onChange={(e) => setEditForm({ ...editForm, username: e.target.value })}
+                                    className="w-full rounded-lg border px-3 py-2"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-xs text-slate-500 mb-1">Phone</label>
+                                  <input
+                                    type="tel"
+                                    value={editForm.phoneNumber}
+                                    onChange={(e) => setEditForm({ ...editForm, phoneNumber: e.target.value })}
+                                    className="w-full rounded-lg border px-3 py-2"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-xs text-slate-500 mb-1">Role</label>
+                                  <select
+                                    value={editForm.role}
+                                    onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}
+                                    className="w-full rounded-lg border px-3 py-2 bg-white"
+                                  >
+                                    <option value="player">Player</option>
+                                    <option value="admin">Admin</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="block text-xs text-slate-500 mb-1">New Password (optional)</label>
+                                  <input
+                                    type={pwVisibleUserId === u._id ? 'text' : 'password'}
+                                    value={editForm.password}
+                                    onChange={(e) => setEditForm({ ...editForm, password: e.target.value })}
+                                    className="w-full rounded-lg border px-3 py-2"
+                                    placeholder="Leave blank to keep current"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => setPwVisibleUserId(prev => prev === u._id ? null : u._id)}
+                                    className="mt-1 text-xs text-slate-600 underline"
+                                  >
+                                    {pwVisibleUserId === u._id ? 'Hide' : 'Show'} password
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  onClick={cancelEditUser}
+                                  className="px-3 py-2 text-xs rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  onClick={() => saveEditUser(u._id)}
+                                  disabled={editBusy}
+                                  className={`px-3 py-2 text-xs rounded-lg text-white ${editBusy ? 'bg-blue-300' : 'bg-blue-600 hover:bg-blue-700'}`}
+                                >
+                                  {editBusy ? 'Saving…' : 'Save'}
+                                </button>
+                              </div>
                             </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
