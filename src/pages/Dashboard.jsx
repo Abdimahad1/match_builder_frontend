@@ -2,10 +2,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
-import { Calendar, Trophy, Users, TrendingUp, Play, CheckSquare, Clock } from 'lucide-react';
+import { Calendar, Trophy, Users, TrendingUp, Play, CheckSquare, Clock, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 import PageLayout from '../components/PageLayout';
 
 const API_URL = import.meta.env.VITE_API_URL;
+const WS_URL = import.meta.env.VITE_WS_URL || API_URL.replace('http', 'ws');
 
 const Dashboard = () => {
   const [activeTab, setActiveTab] = useState("all");
@@ -13,6 +14,7 @@ const Dashboard = () => {
   const [myLeagues, setMyLeagues] = useState([]);
   const [userMatches, setUserMatches] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [stats, setStats] = useState({
     upcoming: 0,
     leagues: 0,
@@ -26,16 +28,85 @@ const Dashboard = () => {
   const [nextMatch, setNextMatch] = useState(null);
   const [userTeamNames, setUserTeamNames] = useState([]);
   const [userSettings, setUserSettings] = useState(null);
+  const [connectionStatus, setConnectionStatus] = useState('connecting');
+  const [lastUpdate, setLastUpdate] = useState(null);
 
   const isMountedRef = useRef(true);
+  const wsRef = useRef(null);
+  const reconnectTimeoutRef = useRef(null);
 
   useEffect(() => {
     return () => {
       isMountedRef.current = false;
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
     };
   }, []);
 
-  const fetchData = useCallback(async ({ showSpinner = false } = {}) => {
+  // WebSocket connection setup
+  const connectWebSocket = useCallback(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    try {
+      // Close existing connection
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+
+      const wsUrl = `${WS_URL.replace('/api', '')}/ws?token=${token}`;
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        console.log('🟢 WebSocket connected');
+        setConnectionStatus('connected');
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log('📨 WebSocket message received:', data);
+          
+          if (data.type === 'MATCH_UPDATED' || data.type === 'LEAGUE_UPDATED') {
+            console.log('🔄 Real-time update received, refreshing data...');
+            fetchData({ showSpinner: false, silent: true });
+          }
+        } catch (error) {
+          console.error('Error parsing WebSocket message:', error);
+        }
+      };
+
+      ws.onclose = (event) => {
+        console.log('🔴 WebSocket disconnected:', event.code, event.reason);
+        setConnectionStatus('disconnected');
+        
+        // Attempt reconnect after 3 seconds
+        if (isMountedRef.current) {
+          reconnectTimeoutRef.current = setTimeout(() => {
+            console.log('🔄 Attempting to reconnect WebSocket...');
+            connectWebSocket();
+          }, 3000);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        setConnectionStatus('error');
+      };
+
+    } catch (error) {
+      console.error('WebSocket connection failed:', error);
+      setConnectionStatus('error');
+    }
+  }, []);
+
+  // Enhanced fetchData with optimistic updates support
+  const fetchData = useCallback(async ({ showSpinner = false, silent = false } = {}) => {
     const token = localStorage.getItem('token');
     if (!token) {
       if (showSpinner && isMountedRef.current) setLoading(false);
@@ -43,7 +114,10 @@ const Dashboard = () => {
     }
 
     try {
-      if (showSpinner) setLoading(true);
+      if (showSpinner && !silent) setLoading(true);
+      if (!showSpinner && !silent) setRefreshing(true);
+
+      console.log('🔍 Fetching dashboard data...');
 
       const [userRes, leaguesRes] = await Promise.all([
         axios.get(`${API_URL}/api/auth/me`, {
@@ -78,107 +152,12 @@ const Dashboard = () => {
 
       if (leaguesRes.data && leaguesRes.data.success) {
         const leagues = leaguesRes.data.data || [];
-        setMyLeagues(leagues);
-
-        const currentUser =
-          userRes.data.success
-            ? userRes.data.data
-            : localStorage.getItem('user')
-              ? JSON.parse(localStorage.getItem('user'))
-              : null;
-        const currentUserId = currentUser?._id || currentUser?.id;
-
-        const teamNames = [];
-        leagues.forEach(league => {
-          league.participants?.forEach(participant => {
-            const participantUserId = participant.userId?._id || participant.userId?.id || participant.userId;
-            if (participantUserId && (participantUserId.toString() === currentUserId?.toString() || participantUserId === currentUserId)) {
-              teamNames.push(participant.teamName);
-            }
-          });
-        });
-        setUserTeamNames(teamNames);
-
-        const allMatches = [];
-        leagues.forEach(league => {
-          if (league.matches && league.matches.length > 0) {
-            league.matches.forEach(match => {
-              const isUserTeam = teamNames.includes(match.homeTeam) || teamNames.includes(match.awayTeam);
-              if (isUserTeam) {
-                allMatches.push({
-                  ...match,
-                  leagueName: league.name,
-                  leagueId: league._id,
-                  userTeam: teamNames.includes(match.homeTeam) ? match.homeTeam : match.awayTeam,
-                  opponent: teamNames.includes(match.homeTeam) ? match.awayTeam : match.homeTeam,
-                  isHome: teamNames.includes(match.homeTeam)
-                });
-              }
-            });
-          }
-        });
-
-        allMatches.sort((a, b) => {
-          const roundA = a.roundNumber || 1;
-          const roundB = b.roundNumber || 1;
-          if (roundA !== roundB) return roundA - roundB;
-          return (a.matchNumber || 0) - (b.matchNumber || 0);
-        });
-
-        setUserMatches(allMatches);
-        const next = allMatches.find(m => !m.played);
-        setNextMatch(next);
-
-        const playedMatches = allMatches.filter(m => m.played);
-        const upcomingMatches = allMatches.filter(m => !m.played);
-
-        let wins = 0;
-        let draws = 0;
-        let losses = 0;
-        let totalPoints = 0;
-
-        playedMatches.forEach(match => {
-          const isHome = match.isHome;
-          const homeGoals = match.homeGoals || 0;
-          const awayGoals = match.awayGoals || 0;
-
-          if (isHome) {
-            if (homeGoals > awayGoals) {
-              wins++;
-              totalPoints += 3;
-            } else if (homeGoals === awayGoals) {
-              draws++;
-              totalPoints += 1;
-            } else {
-              losses++;
-            }
-          } else {
-            if (awayGoals > homeGoals) {
-              wins++;
-              totalPoints += 3;
-            } else if (awayGoals === homeGoals) {
-              draws++;
-              totalPoints += 1;
-            } else {
-              losses++;
-            }
-          }
-        });
-
-        const winRate = playedMatches.length > 0
-          ? Math.round((wins / playedMatches.length) * 100)
-          : 0;
-
-        setStats({
-          upcoming: upcomingMatches.length,
-          leagues: leagues.length,
-          points: totalPoints,
-          winRate,
-          matchesPlayed: playedMatches.length,
-          wins,
-          draws,
-          losses
-        });
+        console.log('🏆 Leagues loaded:', leagues.length);
+        
+        // Update state with new data
+        processLeaguesData(leagues, userRes.data.data);
+        
+        setLastUpdate(new Date());
       } else {
         setMyLeagues([]);
         setUserMatches([]);
@@ -194,20 +173,161 @@ const Dashboard = () => {
       setUserTeamNames([]);
       return null;
     } finally {
-      if (showSpinner && isMountedRef.current) {
+      if (showSpinner && isMountedRef.current && !silent) {
         setLoading(false);
+      }
+      if (!silent) {
+        setRefreshing(false);
       }
     }
   }, []);
 
-  // Get user info and fetch data
-  useEffect(() => {
-    fetchData({ showSpinner: true });
-    const intervalId = setInterval(() => {
-      fetchData();
-    }, 1000);
-    return () => clearInterval(intervalId);
+  // Process leagues data and update all derived states
+  const processLeaguesData = useCallback((leagues, currentUser) => {
+    setMyLeagues(leagues);
+
+    const currentUserId = currentUser?._id || currentUser?.id;
+    const userData = localStorage.getItem('user');
+    const fallbackUser = userData ? JSON.parse(userData) : null;
+    const userId = currentUserId || fallbackUser?._id || fallbackUser?.id;
+
+    const teamNames = [];
+    leagues.forEach(league => {
+      league.participants?.forEach(participant => {
+        const participantUserId = participant.userId?._id || participant.userId?.id || participant.userId;
+        if (participantUserId && (participantUserId.toString() === userId?.toString() || participantUserId === userId)) {
+          teamNames.push(participant.teamName);
+        }
+      });
+    });
+    setUserTeamNames(teamNames);
+
+    const allMatches = [];
+    leagues.forEach(league => {
+      if (league.matches && league.matches.length > 0) {
+        league.matches.forEach(match => {
+          const isUserTeam = teamNames.includes(match.homeTeam) || teamNames.includes(match.awayTeam);
+          if (isUserTeam) {
+            allMatches.push({
+              ...match,
+              leagueName: league.name,
+              leagueId: league._id,
+              userTeam: teamNames.includes(match.homeTeam) ? match.homeTeam : match.awayTeam,
+              opponent: teamNames.includes(match.homeTeam) ? match.awayTeam : match.homeTeam,
+              isHome: teamNames.includes(match.homeTeam)
+            });
+          }
+        });
+      }
+    });
+
+    allMatches.sort((a, b) => {
+      const roundA = a.roundNumber || 1;
+      const roundB = b.roundNumber || 1;
+      if (roundA !== roundB) return roundA - roundB;
+      return (a.matchNumber || 0) - (b.matchNumber || 0);
+    });
+
+    setUserMatches(allMatches);
+    
+    // Find next match (first unplayed match)
+    const next = allMatches.find(m => !m.played);
+    setNextMatch(next);
+
+    // Calculate stats
+    const playedMatches = allMatches.filter(m => m.played);
+    const upcomingMatches = allMatches.filter(m => !m.played);
+
+    let wins = 0;
+    let draws = 0;
+    let losses = 0;
+    let totalPoints = 0;
+
+    playedMatches.forEach(match => {
+      const isHome = match.isHome;
+      const homeGoals = match.homeGoals || 0;
+      const awayGoals = match.awayGoals || 0;
+
+      if (isHome) {
+        if (homeGoals > awayGoals) {
+          wins++;
+          totalPoints += 3;
+        } else if (homeGoals === awayGoals) {
+          draws++;
+          totalPoints += 1;
+        } else {
+          losses++;
+        }
+      } else {
+        if (awayGoals > homeGoals) {
+          wins++;
+          totalPoints += 3;
+        } else if (awayGoals === homeGoals) {
+          draws++;
+          totalPoints += 1;
+        } else {
+          losses++;
+        }
+      }
+    });
+
+    const winRate = playedMatches.length > 0
+      ? Math.round((wins / playedMatches.length) * 100)
+      : 0;
+
+    setStats({
+      upcoming: upcomingMatches.length,
+      leagues: leagues.length,
+      points: totalPoints,
+      winRate,
+      matchesPlayed: playedMatches.length,
+      wins,
+      draws,
+      losses
+    });
+
+    console.log('📊 Stats updated:', {
+      matches: allMatches.length,
+      played: playedMatches.length,
+      upcoming: upcomingMatches.length,
+      wins,
+      draws,
+      losses
+    });
+  }, []);
+
+  // Manual refresh function
+  const handleManualRefresh = useCallback(() => {
+    fetchData({ showSpinner: false });
   }, [fetchData]);
+
+  // Initial data load and WebSocket setup
+  useEffect(() => {
+    const initializeDashboard = async () => {
+      await fetchData({ showSpinner: true });
+      connectWebSocket();
+    };
+
+    initializeDashboard();
+
+    // Fallback polling every 30 seconds in case WebSocket fails
+    const fallbackInterval = setInterval(() => {
+      if (connectionStatus !== 'connected') {
+        console.log('🔄 Fallback polling...');
+        fetchData({ showSpinner: false, silent: true });
+      }
+    }, 30000);
+
+    return () => {
+      clearInterval(fallbackInterval);
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+    };
+  }, [fetchData, connectWebSocket]);
 
   const getTeamLogo = (teamName, league) => {
     if (!teamName) {
@@ -244,7 +364,7 @@ const Dashboard = () => {
 
   const filteredMatches = userMatches.filter(match => {
     if (activeTab === "all") return true;
-    if (activeTab === "now") return false; // No live matches for now
+    if (activeTab === "now") return false;
     if (activeTab === "finished") return match.played;
     if (activeTab === "scheduled") return !match.played;
     return true;
@@ -255,6 +375,32 @@ const Dashboard = () => {
     { id: "finished", label: "Finished", count: userMatches.filter(m => m.played).length },
     { id: "scheduled", label: "Scheduled", count: userMatches.filter(m => !m.played).length }
   ];
+
+  // Connection status indicator
+  const ConnectionStatus = () => {
+    const statusConfig = {
+      connecting: { color: 'bg-yellow-500', icon: RefreshCw, text: 'Connecting...', spinning: true },
+      connected: { color: 'bg-green-500', icon: Wifi, text: 'Live', spinning: false },
+      disconnected: { color: 'bg-red-500', icon: WifiOff, text: 'Offline', spinning: false },
+      error: { color: 'bg-red-500', icon: WifiOff, text: 'Connection Error', spinning: false }
+    };
+
+    const config = statusConfig[connectionStatus] || statusConfig.connecting;
+    const Icon = config.icon;
+
+    return (
+      <div className="flex items-center gap-2 text-sm">
+        <div className={`w-2 h-2 rounded-full ${config.color} animate-pulse`}></div>
+        <Icon className={`w-3 h-3 ${config.spinning ? 'animate-spin' : ''}`} />
+        <span className="text-slate-600">{config.text}</span>
+        {lastUpdate && (
+          <span className="text-slate-400 text-xs">
+            Updated {lastUpdate.toLocaleTimeString()}
+          </span>
+        )}
+      </div>
+    );
+  };
 
   if (loading) {
     return (
@@ -279,6 +425,19 @@ const Dashboard = () => {
       pageDescription="Welcome to your dashboard! View upcoming matches, track your team, and manage the league."
       pageColor="from-blue-500 to-cyan-500"
     >
+      {/* Connection Status Bar */}
+      <div className="flex justify-between items-center mb-4 p-3 bg-white rounded-2xl shadow-sm border border-slate-200">
+        <ConnectionStatus />
+        <button
+          onClick={handleManualRefresh}
+          disabled={refreshing}
+          className="flex items-center gap-2 px-3 py-1 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-600 disabled:opacity-50 transition-colors"
+        >
+          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+          {refreshing ? 'Refreshing...' : 'Refresh'}
+        </button>
+      </div>
+
       {/* Next Match Card */}
       {nextMatch ? (
         <motion.div
@@ -286,6 +445,7 @@ const Dashboard = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}
+          key={nextMatch._id} // Re-animate when next match changes
         >
           <div className="flex flex-col items-center space-y-4">
             {/* NEXT MATCH Badge */}
@@ -386,6 +546,7 @@ const Dashboard = () => {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, delay: 0.2 }}
+        key={`stats-${stats.points}-${stats.matchesPlayed}`} // Re-animate when stats change
       >
         {[
           { label: "Matches Played", value: stats.matchesPlayed, icon: Play, color: "from-blue-500 to-cyan-500" },
@@ -424,6 +585,7 @@ const Dashboard = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4 }}
+          key={`record-${stats.wins}-${stats.draws}-${stats.losses}`}
         >
           <h3 className="text-sm font-semibold text-slate-700 mb-3">Match Record</h3>
           <div className="grid grid-cols-3 gap-3">
@@ -454,6 +616,9 @@ const Dashboard = () => {
           {/* Section Header */}
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-bold text-slate-800">My Matches</h2>
+            <span className="text-sm text-slate-500">
+              {filteredMatches.length} of {userMatches.length} matches
+            </span>
           </div>
 
           {/* Tabs */}
@@ -493,13 +658,12 @@ const Dashboard = () => {
                   // Calculate score from user's perspective
                   let userScore = null;
                   let opponentScore = null;
-                  let matchResult = null; // 'win', 'loss', 'draw', or null
+                  let matchResult = null;
                   
                   if (match.played) {
                     const homeGoals = match.homeGoals || 0;
                     const awayGoals = match.awayGoals || 0;
                     
-                    // Determine user's score and opponent's score based on isHome
                     if (match.isHome) {
                       userScore = homeGoals;
                       opponentScore = awayGoals;
@@ -508,7 +672,6 @@ const Dashboard = () => {
                       opponentScore = homeGoals;
                     }
                     
-                    // Determine result
                     if (userScore > opponentScore) {
                       matchResult = 'win';
                     } else if (userScore < opponentScore) {
@@ -520,7 +683,7 @@ const Dashboard = () => {
                   
                   return (
                     <motion.div
-                      key={match._id || index}
+                      key={match._id}
                       className="bg-slate-50 rounded-2xl p-3 border border-slate-200 hover:border-slate-300 transition-all duration-300 group cursor-pointer"
                       whileHover={{ scale: 1.02 }}
                       initial={{ opacity: 0, y: 20 }}

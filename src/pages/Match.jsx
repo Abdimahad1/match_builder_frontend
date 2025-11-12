@@ -23,7 +23,10 @@ import {
   Edit3,
   Save,
   AlertCircle,
-  MoreVertical
+  MoreVertical,
+  RefreshCw,
+  Wifi,
+  WifiOff
 } from "lucide-react";
 
 const tabs = [
@@ -33,6 +36,7 @@ const tabs = [
 ];
 
 const API_URL = import.meta.env.VITE_API_URL;
+const WS_URL = import.meta.env.VITE_WS_URL || API_URL.replace('http', 'ws');
 
 const Match = () => {
   const [leagues, setLeagues] = useState([]);
@@ -44,6 +48,7 @@ const Match = () => {
   const [teamName, setTeamName] = useState("");
   const [joinCode, setJoinCode] = useState("");
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [showJoinByCode, setShowJoinByCode] = useState(false);
   const [user, setUser] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -55,6 +60,82 @@ const Match = () => {
   const [selectedRound, setSelectedRound] = useState(null);
   const [myTeamName, setMyTeamName] = useState(null);
   const [showLeagueDropdown, setShowLeagueDropdown] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState('connecting');
+  const [lastUpdate, setLastUpdate] = useState(null);
+
+  const isMountedRef = useRef(true);
+  const wsRef = useRef(null);
+  const reconnectTimeoutRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // WebSocket connection setup
+  const connectWebSocket = useCallback(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    try {
+      // Close existing connection
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+
+      const wsUrl = `${WS_URL.replace('/api', '')}/ws?token=${token}`;
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        console.log('🟢 WebSocket connected for Match page');
+        setConnectionStatus('connected');
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log('📨 Match WebSocket message received:', data);
+          
+          if (data.type === 'MATCH_UPDATED' || data.type === 'LEAGUE_UPDATED' || data.type === 'PARTICIPANT_ADDED') {
+            console.log('🔄 Real-time match update received, refreshing data...');
+            fetchLeagueData({ showSpinner: false, silent: true });
+          }
+        } catch (error) {
+          console.error('Error parsing WebSocket message:', error);
+        }
+      };
+
+      ws.onclose = (event) => {
+        console.log('🔴 Match WebSocket disconnected:', event.code, event.reason);
+        setConnectionStatus('disconnected');
+        
+        // Attempt reconnect after 3 seconds
+        if (isMountedRef.current) {
+          reconnectTimeoutRef.current = setTimeout(() => {
+            console.log('🔄 Attempting to reconnect Match WebSocket...');
+            connectWebSocket();
+          }, 3000);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('Match WebSocket error:', error);
+        setConnectionStatus('error');
+      };
+
+    } catch (error) {
+      console.error('Match WebSocket connection failed:', error);
+      setConnectionStatus('error');
+    }
+  }, []);
 
   const userSelectedTeam = useMemo(() => {
     if (userSettings?.selectedTeam) {
@@ -97,18 +178,14 @@ const Match = () => {
     setTimeout(() => setAlert(null), 3000);
   }, []);
 
-  const isMountedRef = useRef(true);
-
-  useEffect(() => {
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, []);
-
-  const fetchLeagueData = useCallback(async ({ showSpinner = false } = {}) => {
+  const fetchLeagueData = useCallback(async ({ showSpinner = false, silent = false } = {}) => {
     const token = localStorage.getItem('token');
     try {
-      if (showSpinner) setLoading(true);
+      if (showSpinner && !silent) setLoading(true);
+      if (!showSpinner && !silent) setRefreshing(true);
+
+      console.log('🔍 Fetching match data...');
+
       const [leaguesRes, myLeaguesRes] = await Promise.all([
         axios.get(`${API_URL}/api/leagues`).catch((err) => {
           console.error("Error fetching leagues:", err);
@@ -126,7 +203,7 @@ const Match = () => {
 
       if (leaguesRes.data.success) {
         setLeagues(leaguesRes.data.data || []);
-      } else if (showSpinner) {
+      } else if (showSpinner && !silent) {
         showAlert("Failed to load leagues", false);
       }
 
@@ -140,34 +217,62 @@ const Match = () => {
           return mine.length > 0 ? mine[0]._id : null;
         });
       } else {
-        if (showSpinner) showAlert("Failed to load your leagues", false);
+        if (showSpinner && !silent) showAlert("Failed to load your leagues", false);
         setMyLeagues([]);
       }
 
+      setLastUpdate(new Date());
       return true;
     } catch (err) {
       console.error("Error loading data:", err);
-      if (showSpinner) showAlert("Failed to load leagues", false);
+      if (showSpinner && !silent) showAlert("Failed to load leagues", false);
       if (isMountedRef.current) {
         setLeagues([]);
         setMyLeagues([]);
       }
       return null;
     } finally {
-      if (showSpinner && isMountedRef.current) {
+      if (showSpinner && isMountedRef.current && !silent) {
         setLoading(false);
+      }
+      if (!silent) {
+        setRefreshing(false);
       }
     }
   }, [showAlert]);
 
-  // Fetch leagues on mount and poll
-  useEffect(() => {
-    fetchLeagueData({ showSpinner: true });
-    const intervalId = setInterval(() => {
-      fetchLeagueData();
-    }, 1000);
-    return () => clearInterval(intervalId);
+  // Manual refresh function
+  const handleManualRefresh = useCallback(() => {
+    fetchLeagueData({ showSpinner: false });
   }, [fetchLeagueData]);
+
+  // Initial data load and WebSocket setup
+  useEffect(() => {
+    const initializeMatchData = async () => {
+      await fetchLeagueData({ showSpinner: true });
+      connectWebSocket();
+    };
+
+    initializeMatchData();
+
+    // Fallback polling every 30 seconds in case WebSocket fails
+    const fallbackInterval = setInterval(() => {
+      if (connectionStatus !== 'connected') {
+        console.log('🔄 Match fallback polling...');
+        fetchLeagueData({ showSpinner: false, silent: true });
+      }
+    }, 30000);
+
+    return () => {
+      clearInterval(fallbackInterval);
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+    };
+  }, [fetchLeagueData, connectWebSocket]);
 
   // Track my team name for the active league
   useEffect(() => {
@@ -449,6 +554,32 @@ const Match = () => {
     }
   };
 
+  // Connection status indicator
+  const ConnectionStatus = () => {
+    const statusConfig = {
+      connecting: { color: 'bg-yellow-500', icon: RefreshCw, text: 'Connecting...', spinning: true },
+      connected: { color: 'bg-green-500', icon: Wifi, text: 'Live', spinning: false },
+      disconnected: { color: 'bg-red-500', icon: WifiOff, text: 'Offline', spinning: false },
+      error: { color: 'bg-red-500', icon: WifiOff, text: 'Connection Error', spinning: false }
+    };
+
+    const config = statusConfig[connectionStatus] || statusConfig.connecting;
+    const Icon = config.icon;
+
+    return (
+      <div className="flex items-center gap-2 text-sm">
+        <div className={`w-2 h-2 rounded-full ${config.color} animate-pulse`}></div>
+        <Icon className={`w-3 h-3 ${config.spinning ? 'animate-spin' : ''}`} />
+        <span className="text-slate-600">{config.text}</span>
+        {lastUpdate && (
+          <span className="text-slate-400 text-xs">
+            Updated {lastUpdate.toLocaleTimeString()}
+          </span>
+        )}
+      </div>
+    );
+  };
+
   const currentLeague = myLeagues.find((l) => l._id === activeLeague);
   const availableLeagues = leagues.filter(l => 
     !myLeagues.some(myL => myL._id === l._id) && 
@@ -581,6 +712,19 @@ const Match = () => {
         )}
       </AnimatePresence>
 
+      {/* Connection Status Bar */}
+      <div className="flex justify-between items-center mb-4 p-3 bg-white rounded-2xl shadow-sm border border-slate-200">
+        <ConnectionStatus />
+        <button
+          onClick={handleManualRefresh}
+          disabled={refreshing}
+          className="flex items-center gap-2 px-3 py-1 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-600 disabled:opacity-50 transition-colors"
+        >
+          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+          {refreshing ? 'Refreshing...' : 'Refresh'}
+        </button>
+      </div>
+
       {/* Role Badge */}
       <div className="flex justify-center mb-6">
         <div className={`px-4 py-2 rounded-full font-semibold text-sm flex items-center gap-2 ${
@@ -599,6 +743,7 @@ const Match = () => {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
+        key={`stats-${myLeagues.length}-${availableLeagues.length}`}
       >
         {[
           { 
@@ -661,6 +806,7 @@ const Match = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}
+          key={currentLeague._id}
         >
           <div className="flex flex-col md:flex-row items-center justify-between">
             <div className="flex items-center space-x-3 md:space-x-4 mb-4 md:mb-0">
@@ -848,11 +994,6 @@ const Match = () => {
                   size={40}
                   className="bg-white border-slate-200"
                 />
-                <LeagueIconDisplay
-                  league={league}
-                  size={40}
-                  className="bg-white border-slate-200"
-                />
                 <div className="text-left flex-1 min-w-0">
                   <div className="font-semibold truncate">{league.name}</div>
                   <div className="text-xs opacity-70 truncate flex items-center gap-1">
@@ -878,6 +1019,7 @@ const Match = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
+          key={`matches-${currentLeague._id}-${activeTab}-${selectedRound}`}
         >
           <div className="flex flex-col gap-4 mb-6">
             <h2 className="text-xl font-bold text-slate-800">Matches</h2>
@@ -987,7 +1129,7 @@ const Match = () => {
               {filteredMatches.length > 0 ? (
                 filteredMatches.map((match, index) => (
                   <motion.div
-                    key={match._id || index}
+                    key={match._id}
                     className={`bg-gradient-to-r from-slate-50 to-slate-100 rounded-2xl p-3 border transition-all duration-300 group ${
                       isUserTeam(match.homeTeam) || isUserTeam(match.awayTeam) 
                         ? 'border-blue-200 bg-blue-50/50' 
@@ -1208,7 +1350,7 @@ const Match = () => {
         </motion.div>
       )}
 
-      {/* Rest of the code remains the same for modals and other sections... */}
+      {/* Rest of the modals remain the same... */}
       {/* JOIN MODAL */}
       <AnimatePresence>
         {showJoinModal && selectedLeague && (

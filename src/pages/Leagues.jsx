@@ -3,8 +3,10 @@ import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import PageLayout from '../components/PageLayout';
 import { LeagueIconDisplay } from '../utils/leagueIcons';
+import { RefreshCw, Wifi, WifiOff } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL;
+const WS_URL = import.meta.env.VITE_WS_URL || API_URL.replace('http', 'ws');
 
 const months = [
   { id: 'all', name: 'All Months' },
@@ -141,12 +143,89 @@ const buildStandings = (league, userTeamName = '') => {
 const Leagues = () => {
   const [leagues, setLeagues] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [activeLeagueId, setActiveLeagueId] = useState(null);
   const [selectedYear, setSelectedYear] = useState('all');
   const [selectedMonth, setSelectedMonth] = useState('all');
   const [selectedWeek, setSelectedWeek] = useState('all');
   const [user, setUser] = useState(null);
+  const [connectionStatus, setConnectionStatus] = useState('connecting');
+  const [lastUpdate, setLastUpdate] = useState(null);
+
+  const isMountedRef = useRef(true);
+  const wsRef = useRef(null);
+  const reconnectTimeoutRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // WebSocket connection setup
+  const connectWebSocket = useCallback(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    try {
+      // Close existing connection
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+
+      const wsUrl = `${WS_URL.replace('/api', '')}/ws?token=${token}`;
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        console.log('🟢 WebSocket connected for Leagues page');
+        setConnectionStatus('connected');
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log('📨 Leagues WebSocket message received:', data);
+          
+          if (data.type === 'LEAGUE_UPDATED' || data.type === 'MATCH_UPDATED' || data.type === 'PARTICIPANT_ADDED') {
+            console.log('🔄 Real-time leagues update received, refreshing data...');
+            fetchLeaguesData({ showSpinner: false, silent: true });
+          }
+        } catch (error) {
+          console.error('Error parsing WebSocket message:', error);
+        }
+      };
+
+      ws.onclose = (event) => {
+        console.log('🔴 Leagues WebSocket disconnected:', event.code, event.reason);
+        setConnectionStatus('disconnected');
+        
+        // Attempt reconnect after 3 seconds
+        if (isMountedRef.current) {
+          reconnectTimeoutRef.current = setTimeout(() => {
+            console.log('🔄 Attempting to reconnect Leagues WebSocket...');
+            connectWebSocket();
+          }, 3000);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('Leagues WebSocket error:', error);
+        setConnectionStatus('error');
+      };
+
+    } catch (error) {
+      console.error('Leagues WebSocket connection failed:', error);
+      setConnectionStatus('error');
+    }
+  }, []);
 
   useEffect(() => {
     const cachedUser = localStorage.getItem('user');
@@ -159,17 +238,13 @@ const Leagues = () => {
     }
   }, []);
 
-  const isMountedRef = useRef(true);
-
-  useEffect(() => {
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, []);
-
-  const fetchLeaguesData = useCallback(async ({ showSpinner = false } = {}) => {
+  const fetchLeaguesData = useCallback(async ({ showSpinner = false, silent = false } = {}) => {
     try {
-      if (showSpinner) setLoading(true);
+      if (showSpinner && !silent) setLoading(true);
+      if (!showSpinner && !silent) setRefreshing(true);
+
+      console.log('🔍 Fetching leagues data...');
+
       const token = localStorage.getItem('token');
       const res = await fetch(`${API_URL}/api/leagues`, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined
@@ -177,7 +252,7 @@ const Leagues = () => {
       const data = await res.json();
       if (!isMountedRef.current) return data;
       if (!data.success) {
-        if (showSpinner) setError(data.message || 'Failed to fetch leagues');
+        if (showSpinner && !silent) setError(data.message || 'Failed to fetch leagues');
         setLeagues([]);
         return data;
       }
@@ -190,28 +265,57 @@ const Leagues = () => {
         return leagueList.length > 0 ? leagueList[0]._id : null;
       });
       setError(null);
+      setLastUpdate(new Date());
       return data;
     } catch (err) {
       console.error('Error fetching leagues:', err);
       if (isMountedRef.current) {
-        if (showSpinner) setError(err.message || 'Unable to load leagues');
+        if (showSpinner && !silent) setError(err.message || 'Unable to load leagues');
         setLeagues([]);
       }
       return null;
     } finally {
-      if (showSpinner && isMountedRef.current) {
+      if (showSpinner && isMountedRef.current && !silent) {
         setLoading(false);
+      }
+      if (!silent) {
+        setRefreshing(false);
       }
     }
   }, []);
 
-  useEffect(() => {
-    fetchLeaguesData({ showSpinner: true });
-    const intervalId = setInterval(() => {
-      fetchLeaguesData();
-    }, 1000);
-    return () => clearInterval(intervalId);
+  // Manual refresh function
+  const handleManualRefresh = useCallback(() => {
+    fetchLeaguesData({ showSpinner: false });
   }, [fetchLeaguesData]);
+
+  // Initial data load and WebSocket setup
+  useEffect(() => {
+    const initializeLeaguesData = async () => {
+      await fetchLeaguesData({ showSpinner: true });
+      connectWebSocket();
+    };
+
+    initializeLeaguesData();
+
+    // Fallback polling every 30 seconds in case WebSocket fails
+    const fallbackInterval = setInterval(() => {
+      if (connectionStatus !== 'connected') {
+        console.log('🔄 Leagues fallback polling...');
+        fetchLeaguesData({ showSpinner: false, silent: true });
+      }
+    }, 30000);
+
+    return () => {
+      clearInterval(fallbackInterval);
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+    };
+  }, [fetchLeaguesData, connectWebSocket]);
 
   const years = useMemo(() => {
     const uniqueYears = new Set();
@@ -293,12 +397,51 @@ const Leagues = () => {
   const noFilteredLeagues =
     !loading && !error && leagues.length > 0 && filteredLeagues.length === 0;
 
+  // Connection status indicator
+  const ConnectionStatus = () => {
+    const statusConfig = {
+      connecting: { color: 'bg-yellow-500', icon: RefreshCw, text: 'Connecting...', spinning: true },
+      connected: { color: 'bg-green-500', icon: Wifi, text: 'Live', spinning: false },
+      disconnected: { color: 'bg-red-500', icon: WifiOff, text: 'Offline', spinning: false },
+      error: { color: 'bg-red-500', icon: WifiOff, text: 'Connection Error', spinning: false }
+    };
+
+    const config = statusConfig[connectionStatus] || statusConfig.connecting;
+    const Icon = config.icon;
+
+    return (
+      <div className="flex items-center gap-2 text-sm">
+        <div className={`w-2 h-2 rounded-full ${config.color} animate-pulse`}></div>
+        <Icon className={`w-3 h-3 ${config.spinning ? 'animate-spin' : ''}`} />
+        <span className="text-slate-600">{config.text}</span>
+        {lastUpdate && (
+          <span className="text-slate-400 text-xs">
+            Updated {lastUpdate.toLocaleTimeString()}
+          </span>
+        )}
+      </div>
+    );
+  };
+
   return (
     <PageLayout
       pageTitle="Leagues & Tournaments"
       pageDescription="Explore different leagues, tournaments, and competitions. Track standings and your team's progress."
       pageColor="from-yellow-500 to-orange-500"
     >
+      {/* Connection Status Bar */}
+      <div className="flex justify-between items-center mb-4 p-3 bg-white rounded-2xl shadow-sm border border-slate-200">
+        <ConnectionStatus />
+        <button
+          onClick={handleManualRefresh}
+          disabled={refreshing}
+          className="flex items-center gap-2 px-3 py-1 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-600 disabled:opacity-50 transition-colors"
+        >
+          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+          {refreshing ? 'Refreshing...' : 'Refresh'}
+        </button>
+      </div>
+
       {loading && (
         <motion.div
           className="bg-white rounded-3xl p-6 shadow-lg border border-slate-200 mb-6 text-center text-slate-600"
@@ -350,6 +493,7 @@ const Leagues = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
+            key={`leagues-list-${filteredLeagues.length}`}
           >
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-slate-800">Leagues</h2>
@@ -390,6 +534,7 @@ const Leagues = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.1 }}
+            key={currentLeague._id}
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-3">
@@ -475,6 +620,7 @@ const Leagues = () => {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.3 }}
+              key={`user-team-${userTeam.position}`}
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-3">
@@ -524,6 +670,7 @@ const Leagues = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.4 }}
+            key={`standings-${currentLeague._id}`}
           >
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-slate-800">League Standings</h2>
@@ -549,7 +696,7 @@ const Leagues = () => {
             <div className="space-y-1">
               {standings.map((team, index) => (
                 <motion.div
-                  key={team.position}
+                  key={`${team.position}-${team.team}`}
                   className={`grid grid-cols-12 gap-2 px-3 py-3 rounded-xl border transition-all duration-300 ${
                     team.isUserTeam
                       ? 'bg-blue-50 border-blue-200 shadow-sm'
@@ -672,6 +819,7 @@ const Leagues = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.5 }}
+            key={`progress-${playedMatches}-${totalMatches}`}
           >
             <h3 className="text-lg font-bold text-slate-800 mb-3">Season Progress</h3>
             <div className="space-y-3">
@@ -705,17 +853,21 @@ const Leagues = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.6 }}
+            key={`participants-${currentLeague.participants?.length}`}
           >
             <h3 className="text-lg font-bold text-slate-800 mb-3">League Participants</h3>
             <div className="flex flex-wrap gap-3">
               {currentLeague.participants?.map((participant, index) => {
                 const teamLogo = getTeamLogo(participant.teamName, currentLeague, userParticipant?.teamName);
                 return (
-                  <div
+                  <motion.div
                     key={participant._id || index}
                     className={`flex items-center space-x-2 bg-slate-100 rounded-full px-3 py-2 ${
                       participant.teamName === userParticipant?.teamName ? 'bg-blue-100 border border-blue-200' : ''
                     }`}
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: index * 0.1 }}
                   >
                     <img 
                       src={teamLogo} 
@@ -731,7 +883,7 @@ const Leagues = () => {
                         YOU
                       </span>
                     )}
-                  </div>
+                  </motion.div>
                 );
               })}
             </div>
