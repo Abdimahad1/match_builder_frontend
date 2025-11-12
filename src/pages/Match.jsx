@@ -1,5 +1,5 @@
 // pages/Match.jsx
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import PageLayout from "../components/PageLayout";
 import axios from "axios";
@@ -92,39 +92,82 @@ const Match = () => {
     }
   }, []);
 
-  const showAlert = (msg, success = false) => {
+  const showAlert = useCallback((msg, success = false) => {
     setAlert({ msg, success });
     setTimeout(() => setAlert(null), 3000);
-  };
+  }, []);
 
-  // Fetch leagues on mount
+  const isMountedRef = useRef(true);
+
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        const [leaguesRes, myLeaguesRes] = await Promise.all([
-          axios.get(`${API_URL}/api/leagues`),
-          axios.get(`${API_URL}/api/leagues/my-leagues`, {
-            headers: { Authorization: `Bearer ${token}` }
-          })
-        ]);
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
-        if (leaguesRes.data.success) {
-          setLeagues(leaguesRes.data.data);
-        }
-        if (myLeaguesRes.data.success) {
-          setMyLeagues(myLeaguesRes.data.data);
-          if (myLeaguesRes.data.data.length > 0) {
-            setActiveLeague(myLeaguesRes.data.data[0]._id);
-          }
-        }
-      } catch (err) {
-        console.error("Error loading data:", err);
+  const fetchLeagueData = useCallback(async ({ showSpinner = false } = {}) => {
+    const token = localStorage.getItem('token');
+    try {
+      if (showSpinner) setLoading(true);
+      const [leaguesRes, myLeaguesRes] = await Promise.all([
+        axios.get(`${API_URL}/api/leagues`).catch((err) => {
+          console.error("Error fetching leagues:", err);
+          return { data: { success: false, data: [] } };
+        }),
+        axios.get(`${API_URL}/api/leagues/my-leagues`, {
+          headers: { Authorization: token ? `Bearer ${token}` : '' }
+        }).catch((err) => {
+          console.error("Error fetching my leagues:", err);
+          return { data: { success: false, data: [] } };
+        })
+      ]);
+
+      if (!isMountedRef.current) return null;
+
+      if (leaguesRes.data.success) {
+        setLeagues(leaguesRes.data.data || []);
+      } else if (showSpinner) {
         showAlert("Failed to load leagues", false);
       }
-    };
-    fetchData();
-  }, []);
+
+      if (myLeaguesRes.data.success) {
+        const mine = myLeaguesRes.data.data || [];
+        setMyLeagues(mine);
+        setActiveLeague((prev) => {
+          if (prev && mine.some((league) => league._id === prev)) {
+            return prev;
+          }
+          return mine.length > 0 ? mine[0]._id : null;
+        });
+      } else {
+        if (showSpinner) showAlert("Failed to load your leagues", false);
+        setMyLeagues([]);
+      }
+
+      return true;
+    } catch (err) {
+      console.error("Error loading data:", err);
+      if (showSpinner) showAlert("Failed to load leagues", false);
+      if (isMountedRef.current) {
+        setLeagues([]);
+        setMyLeagues([]);
+      }
+      return null;
+    } finally {
+      if (showSpinner && isMountedRef.current) {
+        setLoading(false);
+      }
+    }
+  }, [showAlert]);
+
+  // Fetch leagues on mount and poll
+  useEffect(() => {
+    fetchLeagueData({ showSpinner: true });
+    const intervalId = setInterval(() => {
+      fetchLeagueData();
+    }, 1000);
+    return () => clearInterval(intervalId);
+  }, [fetchLeagueData]);
 
   // Track my team name for the active league
   useEffect(() => {
@@ -223,16 +266,7 @@ const Match = () => {
         }
         showAlert("Successfully joined league! 🎉", true);
         
-        // Refresh leagues data
-        const [leaguesRes, myLeaguesRes] = await Promise.all([
-          axios.get(`${API_URL}/api/leagues`),
-          axios.get(`${API_URL}/api/leagues/my-leagues`, {
-            headers: { Authorization: `Bearer ${token}` }
-          })
-        ]);
-
-        if (leaguesRes.data.success) setLeagues(leaguesRes.data.data);
-        if (myLeaguesRes.data.success) setMyLeagues(myLeaguesRes.data.data);
+        await fetchLeagueData();
       }
     } catch (err) {
       console.error("Error joining league:", err);

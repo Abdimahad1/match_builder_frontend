@@ -1,5 +1,5 @@
 // pages/Dashboard.jsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
 import { Calendar, Trophy, Users, TrendingUp, Play, CheckSquare, Clock } from 'lucide-react';
@@ -27,177 +27,187 @@ const Dashboard = () => {
   const [userTeamNames, setUserTeamNames] = useState([]);
   const [userSettings, setUserSettings] = useState(null);
 
-  // Get user info and fetch data
+  const isMountedRef = useRef(true);
+
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        const token = localStorage.getItem('token');
-        
-        if (!token) {
-          console.error("No token found");
-          setLoading(false);
-          return;
-        }
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
-        // Fetch current user from API
-        const [userRes, leaguesRes] = await Promise.all([
-          axios.get(`${API_URL}/api/auth/me`, {
-            headers: { Authorization: `Bearer ${token}` }
-          }).catch((err) => {
-            console.error("Error fetching user:", err);
-            return { data: { success: false } };
-          }),
-          axios.get(`${API_URL}/api/leagues/my-leagues`, {
-            headers: { Authorization: `Bearer ${token}` }
-          }).catch((err) => {
-            console.error("Error fetching leagues:", err);
-            return { data: { success: false, data: [] } };
-          })
-        ]);
+  const fetchData = useCallback(async ({ showSpinner = false } = {}) => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      if (showSpinner && isMountedRef.current) setLoading(false);
+      return null;
+    }
 
-        // Set user if fetch was successful
-        if (userRes.data.success && userRes.data.data) {
-          const userObj = userRes.data.data;
+    try {
+      if (showSpinner) setLoading(true);
+
+      const [userRes, leaguesRes] = await Promise.all([
+        axios.get(`${API_URL}/api/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }).catch((err) => {
+          console.error("Error fetching user:", err);
+          return { data: { success: false } };
+        }),
+        axios.get(`${API_URL}/api/leagues/my-leagues`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }).catch((err) => {
+          console.error("Error fetching leagues:", err);
+          return { data: { success: false, data: [] } };
+        })
+      ]);
+
+      if (!isMountedRef.current) return null;
+
+      if (userRes.data.success && userRes.data.data) {
+        const userObj = userRes.data.data;
+        setUser(userObj);
+        setUserSettings(userObj.settings || null);
+        localStorage.setItem('user', JSON.stringify(userObj));
+      } else {
+        const userData = localStorage.getItem('user');
+        if (userData) {
+          const userObj = JSON.parse(userData);
           setUser(userObj);
           setUserSettings(userObj.settings || null);
-          localStorage.setItem('user', JSON.stringify(userObj));
-        } else {
-          // Fallback to localStorage if API fails
-          const userData = localStorage.getItem('user');
-          if (userData) {
-            const userObj = JSON.parse(userData);
-            setUser(userObj);
-            setUserSettings(userObj.settings || null);
-          }
         }
+      }
 
-        if (leaguesRes.data && leaguesRes.data.success) {
-          const leagues = leaguesRes.data.data || [];
-          setMyLeagues(leagues);
+      if (leaguesRes.data && leaguesRes.data.success) {
+        const leagues = leaguesRes.data.data || [];
+        setMyLeagues(leagues);
 
-          // Get current user ID (from API or localStorage fallback)
-          const currentUser = userRes.data.success ? userRes.data.data : (localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')) : null);
-          const currentUserId = currentUser?._id || currentUser?.id;
+        const currentUser =
+          userRes.data.success
+            ? userRes.data.data
+            : localStorage.getItem('user')
+              ? JSON.parse(localStorage.getItem('user'))
+              : null;
+        const currentUserId = currentUser?._id || currentUser?.id;
 
-          // Extract user's team names from all leagues
-          const teamNames = [];
-          leagues.forEach(league => {
-            league.participants?.forEach(participant => {
-              // Handle both populated userId object and string ID
-              const participantUserId = participant.userId?._id || participant.userId?.id || participant.userId;
-              if (participantUserId && (participantUserId.toString() === currentUserId?.toString() || participantUserId === currentUserId)) {
-                teamNames.push(participant.teamName);
+        const teamNames = [];
+        leagues.forEach(league => {
+          league.participants?.forEach(participant => {
+            const participantUserId = participant.userId?._id || participant.userId?.id || participant.userId;
+            if (participantUserId && (participantUserId.toString() === currentUserId?.toString() || participantUserId === currentUserId)) {
+              teamNames.push(participant.teamName);
+            }
+          });
+        });
+        setUserTeamNames(teamNames);
+
+        const allMatches = [];
+        leagues.forEach(league => {
+          if (league.matches && league.matches.length > 0) {
+            league.matches.forEach(match => {
+              const isUserTeam = teamNames.includes(match.homeTeam) || teamNames.includes(match.awayTeam);
+              if (isUserTeam) {
+                allMatches.push({
+                  ...match,
+                  leagueName: league.name,
+                  leagueId: league._id,
+                  userTeam: teamNames.includes(match.homeTeam) ? match.homeTeam : match.awayTeam,
+                  opponent: teamNames.includes(match.homeTeam) ? match.awayTeam : match.homeTeam,
+                  isHome: teamNames.includes(match.homeTeam)
+                });
               }
             });
-          });
-          setUserTeamNames(teamNames);
+          }
+        });
 
-          // Collect all matches where user's team is involved
-          const allMatches = [];
-          leagues.forEach(league => {
-            if (league.matches && league.matches.length > 0) {
-              league.matches.forEach(match => {
-                const isUserTeam = teamNames.includes(match.homeTeam) || teamNames.includes(match.awayTeam);
-                if (isUserTeam) {
-                  allMatches.push({
-                    ...match,
-                    leagueName: league.name,
-                    leagueId: league._id,
-                    userTeam: teamNames.includes(match.homeTeam) ? match.homeTeam : match.awayTeam,
-                    opponent: teamNames.includes(match.homeTeam) ? match.awayTeam : match.homeTeam,
-                    isHome: teamNames.includes(match.homeTeam)
-                  });
-                }
-              });
-            }
-          });
+        allMatches.sort((a, b) => {
+          const roundA = a.roundNumber || 1;
+          const roundB = b.roundNumber || 1;
+          if (roundA !== roundB) return roundA - roundB;
+          return (a.matchNumber || 0) - (b.matchNumber || 0);
+        });
 
-          // Sort matches by round and match number
-          allMatches.sort((a, b) => {
-            const roundA = a.roundNumber || 1;
-            const roundB = b.roundNumber || 1;
-            if (roundA !== roundB) return roundA - roundB;
-            return (a.matchNumber || 0) - (b.matchNumber || 0);
-          });
+        setUserMatches(allMatches);
+        const next = allMatches.find(m => !m.played);
+        setNextMatch(next);
 
-          setUserMatches(allMatches);
+        const playedMatches = allMatches.filter(m => m.played);
+        const upcomingMatches = allMatches.filter(m => !m.played);
 
-          // Find next match (first unplayed match)
-          const next = allMatches.find(m => !m.played);
-          setNextMatch(next);
+        let wins = 0;
+        let draws = 0;
+        let losses = 0;
+        let totalPoints = 0;
 
-          // Calculate statistics
-          const playedMatches = allMatches.filter(m => m.played);
-          const upcomingMatches = allMatches.filter(m => !m.played);
-          
-          let wins = 0;
-          let draws = 0;
-          let losses = 0;
-          let totalPoints = 0;
+        playedMatches.forEach(match => {
+          const isHome = match.isHome;
+          const homeGoals = match.homeGoals || 0;
+          const awayGoals = match.awayGoals || 0;
 
-          playedMatches.forEach(match => {
-            const userTeam = match.userTeam;
-            const isHome = match.isHome;
-            const homeGoals = match.homeGoals || 0;
-            const awayGoals = match.awayGoals || 0;
-            
-            if (isHome) {
-              if (homeGoals > awayGoals) {
-                wins++;
-                totalPoints += 3;
-              } else if (homeGoals === awayGoals) {
-                draws++;
-                totalPoints += 1;
-              } else {
-                losses++;
-              }
+          if (isHome) {
+            if (homeGoals > awayGoals) {
+              wins++;
+              totalPoints += 3;
+            } else if (homeGoals === awayGoals) {
+              draws++;
+              totalPoints += 1;
             } else {
-              if (awayGoals > homeGoals) {
-                wins++;
-                totalPoints += 3;
-              } else if (awayGoals === homeGoals) {
-                draws++;
-                totalPoints += 1;
-              } else {
-                losses++;
-              }
+              losses++;
             }
-          });
+          } else {
+            if (awayGoals > homeGoals) {
+              wins++;
+              totalPoints += 3;
+            } else if (awayGoals === homeGoals) {
+              draws++;
+              totalPoints += 1;
+            } else {
+              losses++;
+            }
+          }
+        });
 
-          const winRate = playedMatches.length > 0 
-            ? Math.round((wins / playedMatches.length) * 100) 
-            : 0;
+        const winRate = playedMatches.length > 0
+          ? Math.round((wins / playedMatches.length) * 100)
+          : 0;
 
-          setStats({
-            upcoming: upcomingMatches.length,
-            leagues: leagues.length,
-            points: totalPoints,
-            winRate: winRate,
-            matchesPlayed: playedMatches.length,
-            wins,
-            draws,
-            losses
-          });
-        } else {
-          // If leagues API failed, set empty arrays
-          setMyLeagues([]);
-          setUserMatches([]);
-          setUserTeamNames([]);
-        }
-      } catch (err) {
-        console.error("Error loading dashboard data:", err);
-        // Set empty state on error
+        setStats({
+          upcoming: upcomingMatches.length,
+          leagues: leagues.length,
+          points: totalPoints,
+          winRate,
+          matchesPlayed: playedMatches.length,
+          wins,
+          draws,
+          losses
+        });
+      } else {
         setMyLeagues([]);
         setUserMatches([]);
         setUserTeamNames([]);
-      } finally {
+      }
+
+      return true;
+    } catch (err) {
+      console.error("Error loading dashboard data:", err);
+      if (!isMountedRef.current) return null;
+      setMyLeagues([]);
+      setUserMatches([]);
+      setUserTeamNames([]);
+      return null;
+    } finally {
+      if (showSpinner && isMountedRef.current) {
         setLoading(false);
       }
-    };
-
-    fetchData();
+    }
   }, []);
+
+  // Get user info and fetch data
+  useEffect(() => {
+    fetchData({ showSpinner: true });
+    const intervalId = setInterval(() => {
+      fetchData();
+    }, 1000);
+    return () => clearInterval(intervalId);
+  }, [fetchData]);
 
   const getTeamLogo = (teamName, league) => {
     if (!teamName) {

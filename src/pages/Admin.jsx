@@ -120,6 +120,15 @@ const navigate = useNavigate(); // <-- hook
     fetchUsers();
   };
 
+  useEffect(() => {
+    if (!userModalOpen) return;
+    fetchUsers({ silent: true });
+    const intervalId = setInterval(() => {
+      fetchUsers({ silent: true });
+    }, 1000);
+    return () => clearInterval(intervalId);
+  }, [userModalOpen, fetchUsers]);
+
   const handleCreateUser = async (e) => {
     e.preventDefault();
     setCreateError('');
@@ -130,6 +139,7 @@ const navigate = useNavigate(); // <-- hook
     }
     try {
       setCreateBusy(true);
+      const token = localStorage.getItem('token') || '';
       const res = await fetch(`${API_URL}/api/auth/users`, {
         method: 'POST',
         headers: {
@@ -145,24 +155,8 @@ const navigate = useNavigate(); // <-- hook
       }
       setCreateSuccess('User created successfully');
       setCreateForm({ username: '', password: '', phoneNumber: '', role: 'player' });
-      fetchUsers();
-      // refresh stats to update counts
-      setLoadingStats(true);
-      try {
-        const sres = await fetch(`${API_URL}/api/auth/stats`, {
-          headers: { 'Authorization': token ? `Bearer ${token}` : '' }
-        });
-        const sdata = await sres.json();
-        if (sdata.success) {
-          setStats({
-            totalUsers: sdata.data.totalUsers || 0,
-            activeLeagues: sdata.data.activeLeagues || 0,
-            pendingMatches: sdata.data.pendingMatches || 0,
-            revenue: sdata.data.revenue || 0
-          });
-        }
-      } catch {}
-      setLoadingStats(false);
+      await fetchUsers({ silent: true });
+      await loadStats();
     } catch (e) {
       console.error(e);
       setCreateError('Server error while creating user');
@@ -191,6 +185,7 @@ const navigate = useNavigate(); // <-- hook
   const saveEditUser = async (id) => {
     try {
       setEditBusy(true);
+      const token = localStorage.getItem('token') || '';
       const payload = {
         username: editForm.username,
         phoneNumber: editForm.phoneNumber,
@@ -210,20 +205,8 @@ const navigate = useNavigate(); // <-- hook
         alert(data.message || 'Failed to update user');
         return;
       }
-      await fetchUsers();
-      // refresh stats as well
-      const sres = await fetch(`${API_URL}/api/auth/stats`, {
-        headers: { 'Authorization': token ? `Bearer ${token}` : '' }
-      });
-      const sdata = await sres.json();
-      if (sdata.success) {
-        setStats({
-          totalUsers: sdata.data.totalUsers || 0,
-          activeLeagues: sdata.data.activeLeagues || 0,
-          pendingMatches: sdata.data.pendingMatches || 0,
-          revenue: sdata.data.revenue || 0
-        });
-      }
+      await fetchUsers({ silent: true });
+      await loadStats();
       cancelEditUser();
     } catch (e) {
       console.error(e);
@@ -236,6 +219,7 @@ const navigate = useNavigate(); // <-- hook
   const deleteUser = async (id) => {
     if (!confirm('Delete this user? This action cannot be undone.')) return;
     try {
+      const token = localStorage.getItem('token') || '';
       const res = await fetch(`${API_URL}/api/auth/users/${id}`, {
         method: 'DELETE',
         headers: {
@@ -247,20 +231,8 @@ const navigate = useNavigate(); // <-- hook
         alert(data.message || 'Failed to delete user');
         return;
       }
-      await fetchUsers();
-      // refresh stats
-      const sres = await fetch(`${API_URL}/api/auth/stats`, {
-        headers: { 'Authorization': token ? `Bearer ${token}` : '' }
-      });
-      const sdata = await sres.json();
-      if (sdata.success) {
-        setStats({
-          totalUsers: sdata.data.totalUsers || 0,
-          activeLeagues: sdata.data.activeLeagues || 0,
-          pendingMatches: sdata.data.pendingMatches || 0,
-          revenue: sdata.data.revenue || 0
-        });
-      }
+      await fetchUsers({ silent: true });
+      await loadStats();
     } catch (e) {
       console.error(e);
       alert('Server error while deleting user');

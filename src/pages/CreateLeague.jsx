@@ -1,5 +1,5 @@
 // pages/CreateLeague.jsx
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -134,20 +134,20 @@ export default function CreateLeague() {
   }, [location.state]);
 
   // Enhanced fetch leagues to include participant details
-  const fetchLeagues = async () => {
+  const fetchLeagues = useCallback(async ({ silent = false } = {}) => {
+    const token = localStorage.getItem('token');
+    const shouldToggleLoading = !silent;
     try {
-      setLoading(true);
-      const token = localStorage.getItem('token');
+      if (shouldToggleLoading) setLoading(true);
       const res = await fetch(`${API_URL}/api/leagues`, {
         headers: {
-          'Authorization': `Bearer ${token}`
+          'Authorization': token ? `Bearer ${token}` : ''
         }
       });
       const data = await res.json();
-      setLoading(false);
       if (data.success) {
         setLeagues(data.data);
-        
+
         // Pre-cache participant logos
         const newParticipantDetails = {};
         data.data.forEach(league => {
@@ -159,16 +159,24 @@ export default function CreateLeague() {
         });
         setParticipantDetails(prev => ({ ...prev, ...newParticipantDetails }));
       }
+      return data;
     } catch (err) {
       console.error(err);
-      setLoading(false);
-      showAlert("Could not fetch leagues", false);
+      if (shouldToggleLoading) showAlert("Could not fetch leagues", false);
+      return null;
+    } finally {
+      if (shouldToggleLoading) setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    if (activeTab === "list" || activeTab === "matches") fetchLeagues();
-  }, [activeTab]);
+    if (activeTab !== "list" && activeTab !== "matches") return;
+    fetchLeagues();
+    const intervalId = setInterval(() => {
+      fetchLeagues({ silent: true });
+    }, 1000);
+    return () => clearInterval(intervalId);
+  }, [activeTab, fetchLeagues]);
 
   // Create league
   const handleSubmit = async (e) => {
