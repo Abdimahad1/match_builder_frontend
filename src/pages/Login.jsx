@@ -20,79 +20,87 @@ export default function Login() {
 
   const handleLogin = async (e) => {
     e.preventDefault();
+    
+    // Basic validation
+    if (!username.trim() || !password.trim()) {
+      showAlert("❌ Please fill in all fields", false);
+      return;
+    }
+
     setLoading(true);
 
     try {
+      // Set timeout for the request
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+
+      const startTime = Date.now();
+      
       const res = await fetch(`${API_URL}/api/auth/login`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        headers: { 
+          "Content-Type": "application/json",
+          "X-Request-ID": Date.now().toString() // Add request ID for tracking
+        },
+        body: JSON.stringify({ 
+          username: username.trim(), 
+          password: password.trim() 
+        }),
+        signal: controller.signal
       });
+
+      clearTimeout(timeoutId);
+
+      const responseTime = Date.now() - startTime;
+      console.log(`Login API response time: ${responseTime}ms`);
 
       const data = await res.json();
 
       if (!data.success) {
-        showAlert("❌ " + data.message, false);
+        showAlert("❌ " + (data.message || "Login failed"), false);
         setLoading(false);
         return;
       }
 
-      // ✅ Store user data
+      // ✅ Store user data immediately
       localStorage.setItem("token", data.data.token);
       localStorage.setItem("role", data.data.role);
       localStorage.setItem("username", data.data.username);
 
-      // ✅ Fetch full user profile (with settings) and cache
-      try {
-        const profileRes = await fetch(`${API_URL}/api/auth/me`, {
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${data.data.token}`
-          }
-        });
-        const profileData = await profileRes.json();
-        if (profileData.success && profileData.data) {
-          localStorage.setItem("user", JSON.stringify(profileData.data));
-        } else {
-          localStorage.setItem("user", JSON.stringify({
-            _id: data.data._id,
-            userCode: data.data.userCode,
-            username: data.data.username,
-            phoneNumber: data.data.phoneNumber,
-            role: data.data.role,
-            isAdmin: data.data.isAdmin,
-            settings: data.data.settings || {
-              profileImageUrl: "",
-              selectedLeague: { code: "", name: "" },
-              selectedTeam: { name: "", logoUrl: "" }
-            }
-          }));
+      // ✅ Use the user data from login response directly (no second API call)
+      const userData = {
+        _id: data.data._id,
+        userCode: data.data.userCode,
+        username: data.data.username,
+        phoneNumber: data.data.phoneNumber,
+        role: data.data.role,
+        isAdmin: data.data.isAdmin,
+        settings: data.data.settings || {
+          profileImageUrl: "",
+          selectedLeague: { code: "", name: "" },
+          selectedTeam: { name: "", logoUrl: "" }
         }
-      } catch (profileError) {
-        console.error("Failed to load user profile after login", profileError);
-        localStorage.setItem("user", JSON.stringify({
-          _id: data.data._id,
-          userCode: data.data.userCode,
-          username: data.data.username,
-          phoneNumber: data.data.phoneNumber,
-          role: data.data.role,
-          isAdmin: data.data.isAdmin,
-          settings: data.data.settings || {
-            profileImageUrl: "",
-            selectedLeague: { code: "", name: "" },
-            selectedTeam: { name: "", logoUrl: "" }
-          }
-        }));
-      }
+      };
+      
+      localStorage.setItem("user", JSON.stringify(userData));
 
       showAlert("🎉 Login Successful!", true);
 
-      // ✅ Navigate immediately to the correct dashboard
+      // ✅ Navigate immediately without waiting for profile fetch
       const route = data.data.role === "admin" ? "/admin" : "/dashboard";
-      navigate(route, { replace: true });
+      
+      // Small delay to show success message
+      setTimeout(() => {
+        navigate(route, { replace: true });
+      }, 500);
+
     } catch (error) {
-      console.error(error);
-      showAlert("❌ Server error", false);
+      console.error("Login error:", error);
+      if (error.name === 'AbortError') {
+        showAlert("❌ Request timeout - server is taking too long", false);
+      } else {
+        showAlert("❌ Server error - please try again", false);
+      }
     } finally {
       setLoading(false);
     }
@@ -167,6 +175,7 @@ export default function Login() {
                     transition-all duration-300 shadow-lg hover:shadow-xl"
                     placeholder="Enter username"
                     required
+                    disabled={loading}
                   />
                   <span className="absolute right-4 top-1/2 -translate-y-1/2 w-7 h-7 
                     bg-gradient-to-r from-blue-400 to-blue-600 rounded-full text-white 
@@ -181,7 +190,7 @@ export default function Login() {
                 <label className="block font-semibold text-gray-700">Password</label>
                 <div className="relative">
                   <input
-                  type={showPassword ? "text" : "password"}
+                    type={showPassword ? "text" : "password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="w-full p-4 rounded-2xl border-2 border-gray-200 bg-white 
@@ -189,15 +198,17 @@ export default function Login() {
                     transition-all duration-300 shadow-lg hover:shadow-xl"
                     placeholder="Enter password"
                     required
+                    disabled={loading}
                   />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((prev) => !prev)}
-                  className="absolute right-12 top-1/2 -translate-y-1/2 text-blue-500 hover:text-blue-600 transition"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                >
-                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    className="absolute right-12 top-1/2 -translate-y-1/2 text-blue-500 hover:text-blue-600 transition"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    disabled={loading}
+                  >
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
                   <span className="absolute right-4 top-1/2 -translate-y-1/2 w-7 h-7 
                     bg-gradient-to-r from-green-400 to-green-600 rounded-full text-white 
                     flex items-center justify-center text-sm shadow-md">
@@ -212,9 +223,17 @@ export default function Login() {
                 disabled={loading}
                 className="w-full bg-gradient-to-r from-blue-600 to-indigo-700 
                 text-white py-4 rounded-2xl font-bold text-lg shadow-xl 
-                hover:shadow-2xl transform hover:-translate-y-1 transition-all duration-300 disabled:opacity-60 disabled:cursor-not-allowed"
+                hover:shadow-2xl transform hover:-translate-y-1 transition-all duration-300 
+                disabled:opacity-60 disabled:cursor-not-allowed disabled:transform-none"
               >
-                {loading ? "Logging in..." : "Log In →"}
+                {loading ? (
+                  <div className="flex items-center justify-center space-x-2">
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <span>Logging in...</span>
+                  </div>
+                ) : (
+                  "Log In →"
+                )}
               </button>
             </form>
 

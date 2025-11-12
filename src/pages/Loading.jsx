@@ -1,6 +1,7 @@
 // pages/Loading.jsx
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { SkipForward } from 'lucide-react';
 
 export default function Loading({ onComplete }) {
   const [currentStep, setCurrentStep] = useState(0);
@@ -9,8 +10,22 @@ export default function Loading({ onComplete }) {
   const [showWelcome, setShowWelcome] = useState(true);
   const [showCelebration, setShowCelebration] = useState(false);
   const [currentCelebration, setCurrentCelebration] = useState('');
-  const audioCacheRef = useRef({});
-  const timeoutsRef = useRef([]);
+
+  // Animal sounds mapping
+  const animalSounds = {
+    lion: 'https://assets.mixkit.co/sfx/preview/mixkit-lion-roar-5.mp3',
+    cheetah: 'https://assets.mixkit.co/sfx/preview/mixkit-cheetah-cub-growl-1210.mp3',
+    eagle: 'https://assets.mixkit.co/sfx/preview/mixkit-eagle-cry-1139.mp3',
+    wolf: 'https://assets.mixkit.co/sfx/preview/mixkit-wolf-howling-1190.mp3',
+    monkey: 'https://assets.mixkit.co/sfx/preview/mixkit-monkeys-chattering-1211.mp3',
+    owl: 'https://assets.mixkit.co/sfx/preview/mixkit-owl-hooting-close-1212.mp3',
+    dolphin: 'https://assets.mixkit.co/sfx/preview/mixkit-dolphin-call-1189.mp3',
+    rabbit: 'https://assets.mixkit.co/sfx/preview/mixkit-rabbit-crying-1188.mp3',
+    tiger: 'https://assets.mixkit.co/sfx/preview/mixkit-tiger-growl-1192.mp3',
+    kangaroo: 'https://assets.mixkit.co/sfx/preview/mixkit-kangaroo-call-1187.mp3',
+    elephant: 'https://assets.mixkit.co/sfx/preview/mixkit-elephant-trumpet-1186.mp3',
+    penguin: 'https://assets.mixkit.co/sfx/preview/mixkit-penguin-call-1185.mp3'
+  };
 
   const questions = [
     {
@@ -67,91 +82,51 @@ export default function Loading({ onComplete }) {
     penguin: { emoji: "🐧", sound: "HONK!", color: "from-black to-blue-500" }
   };
 
-  const animalSounds = {
-    lion: 'https://cdn.pixabay.com/download/audio/2022/01/13/audio_d2332d17b4.mp3?filename=lion-roar-6002.mp3',
-    cheetah: 'https://cdn.pixabay.com/download/audio/2021/08/08/audio_6f9bdb646d.mp3?filename=cheetah-growl-6325.mp3',
-    eagle: 'https://cdn.pixabay.com/download/audio/2021/08/09/audio_4b8805a97f.mp3?filename=eagle-cry-6341.mp3',
-    wolf: 'https://cdn.pixabay.com/download/audio/2021/08/08/audio_1bc105b956.mp3?filename=wolf-howl-6320.mp3',
-    monkey: 'https://cdn.pixabay.com/download/audio/2021/08/09/audio_3c696bcb67.mp3?filename=monkeys-6343.mp3',
-    owl: 'https://cdn.pixabay.com/download/audio/2021/08/06/audio_50187f20b3.mp3?filename=owl-hoot-6287.mp3',
-    dolphin: 'https://cdn.pixabay.com/download/audio/2022/02/14/audio_3e1dba87c1.mp3?filename=dolphin-sound-effect-10140.mp3',
-    rabbit: 'https://cdn.pixabay.com/download/audio/2022/10/10/audio_507c3fd01a.mp3?filename=small-creature-squeak-122130.mp3',
-    tiger: 'https://cdn.pixabay.com/download/audio/2021/08/04/audio_5bb5a7ab6d.mp3?filename=tiger-guttural-roar-6225.mp3',
-    kangaroo: 'https://cdn.pixabay.com/download/audio/2022/03/13/audio_d5112019ba.mp3?filename=bounce-cartoon-112997.mp3',
-    elephant: 'https://cdn.pixabay.com/download/audio/2021/08/08/audio_74fd9f5d9b.mp3?filename=elephant-call-6318.mp3',
-    penguin: 'https://cdn.pixabay.com/download/audio/2021/08/09/audio_400f3d5c7a.mp3?filename=penguin-calls-6340.mp3'
-  };
-
-  const scheduleTimeout = (callback, delay) => {
-    const timeoutId = window.setTimeout(() => {
-      timeoutsRef.current = timeoutsRef.current.filter(id => id !== timeoutId);
-      callback();
-    }, delay);
-    timeoutsRef.current.push(timeoutId);
-    return timeoutId;
-  };
-
-  const clearAllTimeouts = () => {
-    timeoutsRef.current.forEach(id => clearTimeout(id));
-    timeoutsRef.current = [];
-  };
-
+  // Function to play animal sound
   const playAnimalSound = (animal) => {
     const soundUrl = animalSounds[animal];
-    if (!soundUrl) return;
-
-    let audio = audioCacheRef.current[animal];
-    if (!audio) {
-      audio = new Audio(soundUrl);
-      audio.crossOrigin = 'anonymous';
-      audioCacheRef.current[animal] = audio;
-    }
-
-    try {
-      audio.currentTime = 0;
-      audio.play().catch(() => {
-        const fallback = new Audio(soundUrl);
-        fallback.crossOrigin = 'anonymous';
-        fallback.play().catch(() => {});
+    if (soundUrl) {
+      const audio = new Audio(soundUrl);
+      audio.volume = 0.7; // Set volume to 70%
+      audio.play().catch(error => {
+        console.log('Audio play failed:', error);
+        // Fallback: Use browser's speech synthesis if audio fails
+        const utterance = new SpeechSynthesisUtterance(animalAnimations[animal]?.sound || 'Wow!');
+        utterance.rate = 0.8;
+        utterance.pitch = 1.2;
+        window.speechSynthesis.speak(utterance);
       });
-    } catch {
-      // ignore audio failures
+    } else {
+      // Fallback for missing sounds
+      const utterance = new SpeechSynthesisUtterance(animalAnimations[animal]?.sound || 'Wow!');
+      utterance.rate = 0.8;
+      utterance.pitch = 1.2;
+      window.speechSynthesis.speak(utterance);
     }
   };
 
   useEffect(() => {
     if (showWelcome) {
-      const timer = scheduleTimeout(() => setShowWelcome(false), 3000);
-      return () => {
-        clearTimeout(timer);
-        timeoutsRef.current = timeoutsRef.current.filter(id => id !== timer);
-      };
+      const timer = setTimeout(() => setShowWelcome(false), 3000);
+      return () => clearTimeout(timer);
     }
   }, [showWelcome]);
 
-  useEffect(() => {
-    return () => {
-      clearAllTimeouts();
-      Object.values(audioCacheRef.current).forEach(audio => {
-        audio.pause();
-        audio.currentTime = 0;
-      });
-    };
-  }, []);
-
   const handleAnswer = (answer, animal) => {
+    // Play animal sound when option is selected
     playAnimalSound(animal);
+    
     setAnswers(prev => ({ ...prev, [currentStep]: answer }));
     setCurrentCelebration(animal);
     setShowCelebration(true);
 
-    scheduleTimeout(() => {
+    setTimeout(() => {
       setShowCelebration(false);
       if (currentStep < questions.length - 1) {
-        scheduleTimeout(() => setCurrentStep(prev => prev + 1), 500);
+        setTimeout(() => setCurrentStep(prev => prev + 1), 500);
       } else {
         // After last question, assign a team based on answers
-        scheduleTimeout(() => {
+        setTimeout(() => {
           const randomTeam = teams[Math.floor(Math.random() * teams.length)];
           setTeam(randomTeam.name);
         }, 500);
@@ -159,49 +134,71 @@ export default function Loading({ onComplete }) {
     }, 2000);
   };
 
+  const handleSkip = () => {
+    // Play a fun skip sound
+    const skipAudio = new Audio('https://assets.mixkit.co/sfx/preview/mixkit-game-ball-tap-2073.mp3');
+    skipAudio.volume = 0.6;
+    skipAudio.play();
+
+    if (currentStep < questions.length - 1) {
+      setCurrentStep(prev => prev + 1);
+    } else {
+      // Skip to team assignment
+      const randomTeam = teams[Math.floor(Math.random() * teams.length)];
+      setTeam(randomTeam.name);
+    }
+  };
+
+  const handleSkipAll = () => {
+    // Play a different sound for skipping all
+    const skipAllAudio = new Audio('https://assets.mixkit.co/sfx/preview/mixkit-arcade-game-jump-coin-216.mp3');
+    skipAllAudio.volume = 0.6;
+    skipAllAudio.play();
+
+    const randomTeam = teams[Math.floor(Math.random() * teams.length)];
+    setTeam(randomTeam.name);
+  };
+
   const handleEnterLeague = () => {
+    // Play celebration sound when entering league
+    const enterAudio = new Audio('https://assets.mixkit.co/sfx/preview/mixkit-winning-chimes-2015.mp3');
+    enterAudio.volume = 0.7;
+    enterAudio.play();
+
     // Call the onComplete prop to signal that loading is done
     if (onComplete) {
       onComplete();
     }
   };
 
-  const handleSkip = () => {
-    clearAllTimeouts();
-    Object.values(audioCacheRef.current).forEach(audio => {
-      audio.pause();
-      audio.currentTime = 0;
-    });
-    if (onComplete) {
-      onComplete();
-    }
-  };
-
-  const SkipButton = () => (
-    <button
-      onClick={handleSkip}
-      className="absolute top-4 right-4 flex items-center gap-2 bg-black/40 backdrop-blur-md px-4 py-2 rounded-full text-white text-sm font-semibold hover:bg-black/60 transition"
-    >
-      <span>Skip Intro</span>
-      <span className="text-lg">⏭️</span>
-    </button>
-  );
-
   if (showWelcome) {
     return (
       <motion.div 
-        className="relative min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-indigo-700 flex items-center justify-center"
+        className="min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-indigo-700 flex items-center justify-center p-4"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 1 }}
       >
-        <SkipButton />
         <motion.div
-          className="text-center text-white"
+          className="text-center text-white relative"
           initial={{ scale: 0.5, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ delay: 0.5, duration: 1 }}
         >
+          {/* Skip button for welcome screen */}
+          <motion.button
+            onClick={handleSkipAll}
+            className="absolute top-4 right-4 bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-full font-semibold flex items-center gap-2 backdrop-blur-sm transition-all duration-300"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 1 }}
+          >
+            <SkipForward className="w-4 h-4" />
+            Skip Intro
+          </motion.button>
+
           <motion.h1 
             className="text-6xl font-bold mb-6"
             animate={{ y: [0, -10, 0], rotate: [0, 5, -5, 0] }}
@@ -239,12 +236,25 @@ export default function Loading({ onComplete }) {
     const animal = animalAnimations[currentCelebration];
     return (
       <motion.div 
-        className="relative min-h-screen bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center"
+        className="min-h-screen bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center p-4"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
       >
-        <SkipButton />
-        <div className="text-center text-white">
+        <div className="text-center text-white relative">
+          {/* Skip button for celebration screen */}
+          <motion.button
+            onClick={handleSkip}
+            className="absolute top-4 right-4 bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-full font-semibold flex items-center gap-2 backdrop-blur-sm transition-all duration-300"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.5 }}
+          >
+            <SkipForward className="w-4 h-4" />
+            Continue
+          </motion.button>
+
           {/* Animal running across screen */}
           <motion.div
             className="text-8xl mb-8"
@@ -301,17 +311,30 @@ export default function Loading({ onComplete }) {
   if (team) {
     return (
       <motion.div 
-        className="relative min-h-screen bg-gradient-to-br from-green-500 to-blue-600 flex items-center justify-center p-4"
+        className="min-h-screen bg-gradient-to-br from-green-500 to-blue-600 flex items-center justify-center p-4"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
       >
-        <SkipButton />
         <motion.div
-          className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl text-center"
+          className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl text-center relative"
           initial={{ scale: 0, rotate: -180 }}
           animate={{ scale: 1, rotate: 0 }}
           transition={{ type: "spring", stiffness: 100 }}
         >
+          {/* Skip button for team assignment */}
+          <motion.button
+            onClick={handleEnterLeague}
+            className="absolute top-4 right-4 bg-gradient-to-r from-purple-500 to-pink-500 text-white px-4 py-2 rounded-full font-semibold flex items-center gap-2 transition-all duration-300"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.5 }}
+          >
+            <SkipForward className="w-4 h-4" />
+            Enter Now
+          </motion.button>
+
           <motion.div
             className="w-24 h-24 bg-gradient-to-r from-yellow-400 to-red-500 rounded-full flex items-center justify-center text-4xl mx-auto mb-6"
             animate={{ scale: [1, 1.1, 1] }}
@@ -374,9 +397,21 @@ export default function Loading({ onComplete }) {
   const currentQuestion = questions[currentStep];
 
   return (
-    <div className="relative min-h-screen bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center p-4">
-      <SkipButton />
-      <div className="max-w-lg w-full">
+    <div className="min-h-screen bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center p-4">
+      <div className="max-w-lg w-full relative">
+        {/* Skip button for questions */}
+        <motion.button
+          onClick={handleSkip}
+          className="absolute -top-16 right-0 bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-full font-semibold flex items-center gap-2 backdrop-blur-sm transition-all duration-300 z-10"
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <SkipForward className="w-4 h-4" />
+          Skip Question
+        </motion.button>
+
         {/* Progress Bar */}
         <motion.div 
           className="flex justify-between mb-8"
@@ -419,14 +454,22 @@ export default function Loading({ onComplete }) {
                 <motion.button
                   key={index}
                   onClick={() => handleAnswer(option.text, option.animal)}
-                  className="w-full p-4 text-left bg-gradient-to-r from-gray-50 to-gray-100 rounded-2xl border-2 border-gray-200 hover:border-blue-300 transition-all duration-300 hover:shadow-lg transform hover:-translate-y-1"
+                  className="w-full p-4 text-left bg-gradient-to-r from-gray-50 to-gray-100 rounded-2xl border-2 border-gray-200 hover:border-blue-300 transition-all duration-300 hover:shadow-lg transform hover:-translate-y-1 group"
                   whileHover={{ scale: 1.02, backgroundColor: "rgba(59, 130, 246, 0.1)" }}
                   whileTap={{ scale: 0.98 }}
                   initial={{ y: 50, opacity: 0 }}
                   animate={{ y: 0, opacity: 1 }}
                   transition={{ delay: index * 0.1 + 0.3 }}
                 >
-                  <span className="font-medium text-gray-800">{option.text}</span>
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-gray-800">{option.text}</span>
+                    <motion.span
+                      className="text-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                      whileHover={{ scale: 1.2 }}
+                    >
+                      🔊
+                    </motion.span>
+                  </div>
                 </motion.button>
               ))}
             </div>
