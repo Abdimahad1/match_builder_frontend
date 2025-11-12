@@ -1,5 +1,5 @@
 // pages/Loading.jsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function Loading({ onComplete }) {
@@ -9,6 +9,8 @@ export default function Loading({ onComplete }) {
   const [showWelcome, setShowWelcome] = useState(true);
   const [showCelebration, setShowCelebration] = useState(false);
   const [currentCelebration, setCurrentCelebration] = useState('');
+  const audioCacheRef = useRef({});
+  const timeoutsRef = useRef([]);
 
   const questions = [
     {
@@ -65,25 +67,91 @@ export default function Loading({ onComplete }) {
     penguin: { emoji: "🐧", sound: "HONK!", color: "from-black to-blue-500" }
   };
 
+  const animalSounds = {
+    lion: 'https://cdn.pixabay.com/download/audio/2022/01/13/audio_d2332d17b4.mp3?filename=lion-roar-6002.mp3',
+    cheetah: 'https://cdn.pixabay.com/download/audio/2021/08/08/audio_6f9bdb646d.mp3?filename=cheetah-growl-6325.mp3',
+    eagle: 'https://cdn.pixabay.com/download/audio/2021/08/09/audio_4b8805a97f.mp3?filename=eagle-cry-6341.mp3',
+    wolf: 'https://cdn.pixabay.com/download/audio/2021/08/08/audio_1bc105b956.mp3?filename=wolf-howl-6320.mp3',
+    monkey: 'https://cdn.pixabay.com/download/audio/2021/08/09/audio_3c696bcb67.mp3?filename=monkeys-6343.mp3',
+    owl: 'https://cdn.pixabay.com/download/audio/2021/08/06/audio_50187f20b3.mp3?filename=owl-hoot-6287.mp3',
+    dolphin: 'https://cdn.pixabay.com/download/audio/2022/02/14/audio_3e1dba87c1.mp3?filename=dolphin-sound-effect-10140.mp3',
+    rabbit: 'https://cdn.pixabay.com/download/audio/2022/10/10/audio_507c3fd01a.mp3?filename=small-creature-squeak-122130.mp3',
+    tiger: 'https://cdn.pixabay.com/download/audio/2021/08/04/audio_5bb5a7ab6d.mp3?filename=tiger-guttural-roar-6225.mp3',
+    kangaroo: 'https://cdn.pixabay.com/download/audio/2022/03/13/audio_d5112019ba.mp3?filename=bounce-cartoon-112997.mp3',
+    elephant: 'https://cdn.pixabay.com/download/audio/2021/08/08/audio_74fd9f5d9b.mp3?filename=elephant-call-6318.mp3',
+    penguin: 'https://cdn.pixabay.com/download/audio/2021/08/09/audio_400f3d5c7a.mp3?filename=penguin-calls-6340.mp3'
+  };
+
+  const scheduleTimeout = (callback, delay) => {
+    const timeoutId = window.setTimeout(() => {
+      timeoutsRef.current = timeoutsRef.current.filter(id => id !== timeoutId);
+      callback();
+    }, delay);
+    timeoutsRef.current.push(timeoutId);
+    return timeoutId;
+  };
+
+  const clearAllTimeouts = () => {
+    timeoutsRef.current.forEach(id => clearTimeout(id));
+    timeoutsRef.current = [];
+  };
+
+  const playAnimalSound = (animal) => {
+    const soundUrl = animalSounds[animal];
+    if (!soundUrl) return;
+
+    let audio = audioCacheRef.current[animal];
+    if (!audio) {
+      audio = new Audio(soundUrl);
+      audio.crossOrigin = 'anonymous';
+      audioCacheRef.current[animal] = audio;
+    }
+
+    try {
+      audio.currentTime = 0;
+      audio.play().catch(() => {
+        const fallback = new Audio(soundUrl);
+        fallback.crossOrigin = 'anonymous';
+        fallback.play().catch(() => {});
+      });
+    } catch {
+      // ignore audio failures
+    }
+  };
+
   useEffect(() => {
     if (showWelcome) {
-      const timer = setTimeout(() => setShowWelcome(false), 3000);
-      return () => clearTimeout(timer);
+      const timer = scheduleTimeout(() => setShowWelcome(false), 3000);
+      return () => {
+        clearTimeout(timer);
+        timeoutsRef.current = timeoutsRef.current.filter(id => id !== timer);
+      };
     }
   }, [showWelcome]);
 
+  useEffect(() => {
+    return () => {
+      clearAllTimeouts();
+      Object.values(audioCacheRef.current).forEach(audio => {
+        audio.pause();
+        audio.currentTime = 0;
+      });
+    };
+  }, []);
+
   const handleAnswer = (answer, animal) => {
+    playAnimalSound(animal);
     setAnswers(prev => ({ ...prev, [currentStep]: answer }));
     setCurrentCelebration(animal);
     setShowCelebration(true);
 
-    setTimeout(() => {
+    scheduleTimeout(() => {
       setShowCelebration(false);
       if (currentStep < questions.length - 1) {
-        setTimeout(() => setCurrentStep(prev => prev + 1), 500);
+        scheduleTimeout(() => setCurrentStep(prev => prev + 1), 500);
       } else {
         // After last question, assign a team based on answers
-        setTimeout(() => {
+        scheduleTimeout(() => {
           const randomTeam = teams[Math.floor(Math.random() * teams.length)];
           setTeam(randomTeam.name);
         }, 500);
@@ -98,14 +166,36 @@ export default function Loading({ onComplete }) {
     }
   };
 
+  const handleSkip = () => {
+    clearAllTimeouts();
+    Object.values(audioCacheRef.current).forEach(audio => {
+      audio.pause();
+      audio.currentTime = 0;
+    });
+    if (onComplete) {
+      onComplete();
+    }
+  };
+
+  const SkipButton = () => (
+    <button
+      onClick={handleSkip}
+      className="absolute top-4 right-4 flex items-center gap-2 bg-black/40 backdrop-blur-md px-4 py-2 rounded-full text-white text-sm font-semibold hover:bg-black/60 transition"
+    >
+      <span>Skip Intro</span>
+      <span className="text-lg">⏭️</span>
+    </button>
+  );
+
   if (showWelcome) {
     return (
       <motion.div 
-        className="min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-indigo-700 flex items-center justify-center"
+        className="relative min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-indigo-700 flex items-center justify-center"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 1 }}
       >
+        <SkipButton />
         <motion.div
           className="text-center text-white"
           initial={{ scale: 0.5, opacity: 0 }}
@@ -149,10 +239,11 @@ export default function Loading({ onComplete }) {
     const animal = animalAnimations[currentCelebration];
     return (
       <motion.div 
-        className="min-h-screen bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center"
+        className="relative min-h-screen bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
       >
+        <SkipButton />
         <div className="text-center text-white">
           {/* Animal running across screen */}
           <motion.div
@@ -210,10 +301,11 @@ export default function Loading({ onComplete }) {
   if (team) {
     return (
       <motion.div 
-        className="min-h-screen bg-gradient-to-br from-green-500 to-blue-600 flex items-center justify-center p-4"
+        className="relative min-h-screen bg-gradient-to-br from-green-500 to-blue-600 flex items-center justify-center p-4"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
       >
+        <SkipButton />
         <motion.div
           className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl text-center"
           initial={{ scale: 0, rotate: -180 }}
@@ -282,7 +374,8 @@ export default function Loading({ onComplete }) {
   const currentQuestion = questions[currentStep];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center p-4">
+    <div className="relative min-h-screen bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center p-4">
+      <SkipButton />
       <div className="max-w-lg w-full">
         {/* Progress Bar */}
         <motion.div 

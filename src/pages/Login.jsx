@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
+import { Eye, EyeOff } from "lucide-react";
 
 const API_URL = import.meta.env.VITE_API_URL;
 
@@ -10,6 +11,8 @@ export default function Login() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [alert, setAlert] = useState(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const showAlert = (msg, success = false) => {
     setAlert({ msg, success });
@@ -17,6 +20,7 @@ export default function Login() {
 
   const handleLogin = async (e) => {
     e.preventDefault();
+    setLoading(true);
 
     try {
       const res = await fetch(`${API_URL}/api/auth/login`, {
@@ -29,6 +33,7 @@ export default function Login() {
 
       if (!data.success) {
         showAlert("❌ " + data.message, false);
+        setLoading(false);
         return;
       }
 
@@ -88,6 +93,8 @@ export default function Login() {
     } catch (error) {
       console.error(error);
       showAlert("❌ Server error", false);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -174,7 +181,7 @@ export default function Login() {
                 <label className="block font-semibold text-gray-700">Password</label>
                 <div className="relative">
                   <input
-                    type="password"
+                  type={showPassword ? "text" : "password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="w-full p-4 rounded-2xl border-2 border-gray-200 bg-white 
@@ -183,6 +190,14 @@ export default function Login() {
                     placeholder="Enter password"
                     required
                   />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  className="absolute right-12 top-1/2 -translate-y-1/2 text-blue-500 hover:text-blue-600 transition"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
                   <span className="absolute right-4 top-1/2 -translate-y-1/2 w-7 h-7 
                     bg-gradient-to-r from-green-400 to-green-600 rounded-full text-white 
                     flex items-center justify-center text-sm shadow-md">
@@ -194,11 +209,12 @@ export default function Login() {
               {/* SUBMIT BUTTON */}
               <button
                 type="submit"
+                disabled={loading}
                 className="w-full bg-gradient-to-r from-blue-600 to-indigo-700 
                 text-white py-4 rounded-2xl font-bold text-lg shadow-xl 
-                hover:shadow-2xl transform hover:-translate-y-1 transition-all duration-300"
+                hover:shadow-2xl transform hover:-translate-y-1 transition-all duration-300 disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                Log In →
+                {loading ? "Logging in..." : "Log In →"}
               </button>
             </form>
 
