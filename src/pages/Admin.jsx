@@ -467,9 +467,9 @@ return (<>
 
   {/* User Management Modal */}
   {userModalOpen && (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-3">
       <div className="absolute inset-0 bg-black/50" onClick={() => setUserModalOpen(false)} />
-      <div className="relative bg-white w-[95%] md:w-[900px] rounded-3xl shadow-2xl p-6 md:p-8 border border-slate-200">
+      <div className="relative bg-white w-full max-w-[900px] max-h-[90vh] rounded-3xl shadow-2xl p-6 md:p-8 border border-slate-200 overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-xl font-bold text-slate-800">User Management</h3>
           <button
