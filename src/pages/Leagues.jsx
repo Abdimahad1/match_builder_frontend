@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import PageLayout from '../components/PageLayout';
+import { LeagueIconDisplay } from '../utils/leagueIcons';
 
 const API_URL = import.meta.env.VITE_API_URL;
 
@@ -30,18 +31,6 @@ const weeks = [
 ];
 
 const monthIds = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-
-const getLeagueLogo = (league, palette = 'yellow,orange,red', size = 160) => {
-  const trimmed =
-    league?.leagueLogoUrl && typeof league.leagueLogoUrl === 'string'
-      ? league.leagueLogoUrl.trim()
-      : '';
-  if (trimmed) return trimmed;
-  const seed = league?.name || 'League';
-  return `https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(
-    seed
-  )}&backgroundColor=${palette}&size=${size}`;
-};
 
 // Enhanced function to get team logo with proper fallbacks
 const getTeamLogo = (teamName, league, userTeamName = '') => {
@@ -361,14 +350,10 @@ const Leagues = () => {
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                 >
-                  <img
-                    src={getLeagueLogo(league, 'yellow,orange,red', 160)}
-                    alt={league.name}
-                    className="w-6 h-6 rounded-full object-cover"
-                    onError={(e) => {
-                      e.currentTarget.onerror = null;
-                      e.currentTarget.src = getLeagueLogo({ name: league.name }, 'yellow,orange,red', 160);
-                    }}
+                  <LeagueIconDisplay
+                    league={league}
+                    size={32}
+                    className="bg-white border-slate-200"
                   />
                   <span>{league.name}</span>
                 </motion.button>
@@ -384,17 +369,12 @@ const Leagues = () => {
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-3">
-                <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-sm">
-                  <img
-                    src={getLeagueLogo(currentLeague, 'yellow,orange,red', 220)}
-                    alt={currentLeague.name}
-                    className="w-8 h-8 object-contain"
-                    onError={(e) => {
-                      e.currentTarget.onerror = null;
-                      e.currentTarget.src = getLeagueLogo({ name: currentLeague.name }, 'yellow,orange,red', 220);
-                    }}
-                  />
-                </div>
+                <LeagueIconDisplay
+                  league={currentLeague}
+                  size={56}
+                  className="bg-white border-white/40"
+                  rounded={false}
+                />
                 <div>
                   <h3 className="text-lg font-bold">{currentLeague.name}</h3>
                   <p className="text-white/80 text-sm line-clamp-2">{description}</p>

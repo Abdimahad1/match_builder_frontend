@@ -2,7 +2,7 @@
 import { motion } from 'framer-motion';
 import PageLayout from '../components/PageLayout';
 import { useNavigate } from 'react-router-dom'; // <-- import hook
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 
 const API_URL = import.meta.env.VITE_API_URL;
 
@@ -16,7 +16,6 @@ const navigate = useNavigate(); // <-- hook
     revenue: 0
   });
   const [loadingStats, setLoadingStats] = useState(true);
-  const token = useMemo(() => localStorage.getItem('token') || '', []);
   const [userModalOpen, setUserModalOpen] = useState(false);
   const [usersLoading, setUsersLoading] = useState(false);
   const [users, setUsers] = useState([]);
@@ -42,37 +41,58 @@ const navigate = useNavigate(); // <-- hook
   const [editBusy, setEditBusy] = useState(false);
   const [pwVisibleUserId, setPwVisibleUserId] = useState(null);
 
+  const isMountedRef = useRef(true);
+
   useEffect(() => {
-    const loadStats = async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/auth/stats`, {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': token ? `Bearer ${token}` : ''
-          }
-        });
-        const data = await res.json();
-        if (data.success) {
-          setStats({
-            totalUsers: data.data.totalUsers || 0,
-            activeLeagues: data.data.activeLeagues || 0,
-            pendingMatches: data.data.pendingMatches || 0,
-            revenue: data.data.revenue || 0
-          });
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const loadStats = useCallback(async ({ showSpinner = false } = {}) => {
+    const token = localStorage.getItem('token') || '';
+    try {
+      if (showSpinner) setLoadingStats(true);
+      const res = await fetch(`${API_URL}/api/auth/stats`, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
         }
-      } catch (e) {
-        console.error(e);
-      } finally {
+      });
+      const data = await res.json();
+      if (!isMountedRef.current) return data;
+      if (data.success) {
+        setStats({
+          totalUsers: data.data.totalUsers || 0,
+          activeLeagues: data.data.activeLeagues || 0,
+          pendingMatches: data.data.pendingMatches || 0,
+          revenue: data.data.revenue || 0
+        });
+      }
+      return data;
+    } catch (e) {
+      console.error(e);
+      return null;
+    } finally {
+      if (showSpinner && isMountedRef.current) {
         setLoadingStats(false);
       }
-    };
-    loadStats();
-  }, [token]);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadStats({ showSpinner: true });
+    const intervalId = setInterval(() => {
+      loadStats();
+    }, 1000);
+    return () => clearInterval(intervalId);
+  }, [loadStats]);
 
   // User management helpers
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async ({ silent = false } = {}) => {
+    const token = localStorage.getItem('token') || '';
     try {
-      setUsersLoading(true);
+      if (!silent) setUsersLoading(true);
       const res = await fetch(`${API_URL}/api/auth/users`, {
         headers: {
           'Content-Type': 'application/json',
@@ -80,13 +100,18 @@ const navigate = useNavigate(); // <-- hook
         }
       });
       const data = await res.json();
+      if (!isMountedRef.current) return data;
       if (data.success) setUsers(data.data || []);
+      return data;
     } catch (e) {
       console.error(e);
+      return null;
     } finally {
-      setUsersLoading(false);
+      if (!silent && isMountedRef.current) {
+        setUsersLoading(false);
+      }
     }
-  };
+  }, []);
 
   const openUserModal = () => {
     setUserModalOpen(true);

@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import PageLayout from "../components/PageLayout";
 import axios from "axios";
+import { LeagueIconDisplay } from "../utils/leagueIcons";
 import {
   Trophy,
   Users,
@@ -526,20 +527,6 @@ const Match = () => {
     return `https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(teamName)}&backgroundColor=blue,green,yellow,red,purple&size=80`;
   };
 
-  const getLeagueLogo = (league, palette = "blue,green,purple", size = 120) => {
-    const trimmedLogo =
-      league?.leagueLogoUrl && typeof league.leagueLogoUrl === "string"
-        ? league.leagueLogoUrl.trim()
-        : "";
-    if (trimmedLogo) {
-      return trimmedLogo;
-    }
-    const seed = league?.name || "League";
-    return `https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(
-      seed
-    )}&backgroundColor=${palette}&size=${size}`;
-  };
-
   const getStatusBadge = (status) => {
     const statusConfig = {
       draft: { color: 'bg-blue-100 text-blue-800', icon: Clock, label: 'Joining' },
@@ -676,13 +663,12 @@ const Match = () => {
         >
           <div className="flex flex-col md:flex-row items-center justify-between">
             <div className="flex items-center space-x-3 md:space-x-4 mb-4 md:mb-0">
-              <div className="w-12 h-12 md:w-16 md:h-16 bg-white/20 rounded-2xl flex items-center justify-center">
-                <img
-                  src={getLeagueLogo(currentLeague, "blue,green,purple", 220)}
-                  alt={currentLeague.name}
-                  className="w-8 h-8 md:w-12 md:h-12 object-contain rounded-lg"
-                />
-              </div>
+              <LeagueIconDisplay
+                league={currentLeague}
+                size={currentLeague ? 64 : 48}
+                className="bg-white/80 border border-white/40"
+                rounded={false}
+              />
               <div className="flex-1 min-w-0">
                 <div className="bg-white/20 rounded-full px-2 py-1 inline-block mb-2">
                   <span className="text-xs font-semibold">
@@ -815,10 +801,10 @@ const Match = () => {
                     onClick={() => handleLeagueClick(league)}
                     className="w-full flex items-center space-x-3 p-4 hover:bg-slate-50 transition-colors text-left border-b border-slate-100 last:border-b-0"
                   >
-                    <img
-                      src={getLeagueLogo(league, "blue,green,purple", 160)}
-                      alt={league.name}
-                      className="w-8 h-8 rounded-full object-cover"
+                    <LeagueIconDisplay
+                      league={league}
+                      size={40}
+                      className="bg-white border-slate-200"
                     />
                     <div className="flex-1 min-w-0">
                       <div className="font-semibold text-slate-800 truncate">{league.name}</div>
@@ -856,10 +842,15 @@ const Match = () => {
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
               >
-                <img
-                  src={getLeagueLogo(league, "blue,green,purple", 160)}
-                  alt={league.name}
-                  className="w-8 h-8 rounded-full object-cover"
+                <LeagueIconDisplay
+                  league={league}
+                  size={40}
+                  className="bg-white border-slate-200"
+                />
+                <LeagueIconDisplay
+                  league={league}
+                  size={40}
+                  className="bg-white border-slate-200"
                 />
                 <div className="text-left flex-1 min-w-0">
                   <div className="font-semibold truncate">{league.name}</div>

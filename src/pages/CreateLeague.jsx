@@ -25,17 +25,14 @@ import {
   QrCode
 } from "lucide-react";
 import PageLayout from "../components/PageLayout";
+import {
+  LEAGUE_ICON_OPTIONS,
+  DEFAULT_LEAGUE_ICON_ID,
+  extractLeagueIconId,
+  LeagueIconDisplay
+} from "../utils/leagueIcons";
 
 const API_URL = import.meta.env.VITE_API_URL;
-
-const LEAGUE_LOGO_OPTIONS = [
-  "https://api.dicebear.com/7.x/shapes/svg?seed=PremierChampions&backgroundColor=yellow,orange,red&size=256",
-  "https://api.dicebear.com/7.x/shapes/svg?seed=EliteLeague&backgroundColor=blue,cyan,indigo&size=256",
-  "https://api.dicebear.com/7.x/shapes/svg?seed=GalaxyCup&backgroundColor=purple,pink,indigo&size=256",
-  "https://api.dicebear.com/7.x/shapes/svg?seed=VictoryShield&backgroundColor=emerald,teal,blue&size=256",
-  "https://api.dicebear.com/7.x/shapes/svg?seed=LegendsArena&backgroundColor=orange,amber,red&size=256",
-  "https://api.dicebear.com/7.x/shapes/svg?seed=RoyalLeague&backgroundColor=purple,violet,magenta&size=256"
-];
 
 export default function CreateLeague() {
   const location = useLocation();
@@ -44,7 +41,7 @@ export default function CreateLeague() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [maxParticipants, setMaxParticipants] = useState(20);
-  const [leagueLogoUrl, setLeagueLogoUrl] = useState("");
+  const [leagueIconId, setLeagueIconId] = useState(DEFAULT_LEAGUE_ICON_ID);
   const [alert, setAlert] = useState(null);
   const [leagues, setLeagues] = useState([]);
   const [activeTab, setActiveTab] = useState("create");
@@ -60,20 +57,6 @@ export default function CreateLeague() {
   const [tempAwayGoals, setTempAwayGoals] = useState("");
   const [savingResult, setSavingResult] = useState(false);
   const [participantDetails, setParticipantDetails] = useState({}); // Store participant details with logos
-
-  const getLeagueLogo = (league, palette = "yellow,orange,red", size = 160) => {
-    const trimmedLogo =
-      league?.leagueLogoUrl && typeof league.leagueLogoUrl === "string"
-        ? league.leagueLogoUrl.trim()
-        : "";
-    if (trimmedLogo) {
-      return trimmedLogo;
-    }
-    const seed = league?.name || "League";
-    return `https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(
-      seed
-    )}&backgroundColor=${palette}&size=${size}`;
-  };
 
   // Function to get team logo - enhanced to use actual participant logos
   const getTeamLogo = (teamName, league) => {
@@ -214,7 +197,7 @@ export default function CreateLeague() {
           startDate,
           endDate,
           maxParticipants,
-          leagueLogoUrl: leagueLogoUrl?.trim() || ""
+          leagueLogoUrl: `icon:${leagueIconId}`
         }),
       });
 
@@ -231,7 +214,7 @@ export default function CreateLeague() {
         setStartDate("");
         setEndDate("");
         setMaxParticipants(20);
-        setLeagueLogoUrl("");
+        setLeagueIconId(DEFAULT_LEAGUE_ICON_ID);
         setEditLeagueId(null);
         fetchLeagues();
         setActiveTab("list");
@@ -252,7 +235,8 @@ export default function CreateLeague() {
     setStartDate(new Date(league.startDate).toISOString().split("T")[0]);
     setEndDate(new Date(league.endDate).toISOString().split("T")[0]);
     setMaxParticipants(league.maxParticipants);
-     setLeagueLogoUrl(league.leagueLogoUrl || "");
+    const iconId = extractLeagueIconId(league.leagueLogoUrl);
+    setLeagueIconId(iconId || DEFAULT_LEAGUE_ICON_ID);
   };
 
   const handleDeleteLeague = async (id) => {
@@ -610,66 +594,47 @@ export default function CreateLeague() {
             </div>
 
             <div>
-              <label className="block font-semibold text-gray-700 mb-2">League Logo</label>
+              <label className="block font-semibold text-gray-700 mb-2">League Icon</label>
               <div className="flex flex-col sm:flex-row gap-4">
                 <div className="flex items-center justify-center w-24 h-24 sm:w-28 sm:h-28 rounded-2xl border-2 border-dashed border-yellow-200 bg-yellow-50/40">
-                  <img
-                    src={getLeagueLogo({ name: leagueName || "League", leagueLogoUrl }, "yellow,orange,red", 200)}
-                    alt="League logo preview"
-                    className="w-20 h-20 sm:w-24 sm:h-24 object-contain rounded-xl"
-                    onError={(e) => {
-                      e.currentTarget.onerror = null;
-                      e.currentTarget.src = getLeagueLogo({ name: leagueName || "League" }, "yellow,orange,red", 200);
-                    }}
+                  <LeagueIconDisplay
+                    league={{ name: leagueName || "League", leagueLogoUrl: `icon:${leagueIconId}` }}
+                    iconId={leagueIconId}
+                    size={80}
+                    className="border-none shadow-none bg-white"
                   />
                 </div>
                 <div className="flex-1 space-y-2">
-                  <input
-                    type="url"
-                    value={leagueLogoUrl}
-                    onChange={(e) => setLeagueLogoUrl(e.target.value)}
-                    placeholder="https://example.com/league-logo.png"
-                    className="w-full p-3 md:p-4 rounded-2xl border-2 border-gray-200 focus:outline-none focus:border-yellow-500 focus:ring-4 focus:ring-yellow-200 transition-all shadow-inner"
-                  />
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                    <span>Paste a custom logo URL or pick from the gallery below.</span>
-                    {leagueLogoUrl && (
-                      <button
-                        type="button"
-                        onClick={() => setLeagueLogoUrl("")}
-                        className="px-2 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 font-semibold transition"
-                      >
-                        Clear
-                      </button>
-                    )}
-                  </div>
+                  <p className="text-sm text-gray-600">
+                    Choose an icon to represent your league. Icons render consistently across all devices and avoid image loading issues.
+                  </p>
                 </div>
               </div>
-              <p className="text-xs text-gray-500 mt-3">Quick pick gallery:</p>
-              <div className="mt-2 grid grid-cols-3 sm:grid-cols-6 gap-3">
-                {LEAGUE_LOGO_OPTIONS.map((logo) => (
-                  <button
-                    type="button"
-                    key={logo}
-                    onClick={() => setLeagueLogoUrl(logo)}
-                    className={`p-1 rounded-2xl border transition-all ${
-                      leagueLogoUrl === logo
-                        ? "border-yellow-500 ring-2 ring-yellow-400"
-                        : "border-gray-200 hover:border-yellow-400"
-                    }`}
-                    title="Select logo"
-                  >
-                    <img
-                      src={logo}
-                      alt="League logo option"
-                      className="w-full h-16 object-contain rounded-xl"
-                      onError={(e) => {
-                        e.currentTarget.onerror = null;
-                        e.currentTarget.src = getLeagueLogo({ name: "League" }, "yellow,orange,red", 200);
-                      }}
-                    />
-                  </button>
-                ))}
+              <p className="text-xs text-gray-500 mt-3">Tap to select an icon:</p>
+              <div className="mt-3 grid grid-cols-3 sm:grid-cols-5 gap-3">
+                {LEAGUE_ICON_OPTIONS.map((option) => {
+                  const OptionIcon = option.icon;
+                  const selected = leagueIconId === option.id;
+                  return (
+                    <button
+                      type="button"
+                      key={option.id}
+                      onClick={() => setLeagueIconId(option.id)}
+                      className={`flex flex-col items-center justify-center gap-2 p-3 rounded-2xl border transition-all ${
+                        selected
+                          ? "border-yellow-500 bg-yellow-50 ring-2 ring-yellow-400"
+                          : "border-gray-200 hover:border-yellow-400 hover:bg-yellow-50/60"
+                      }`}
+                    >
+                      <div className="w-12 h-12 flex items-center justify-center rounded-xl bg-white shadow-inner border border-yellow-200 text-yellow-600">
+                        <OptionIcon className="w-6 h-6" />
+                      </div>
+                      <span className={`text-xs font-medium ${selected ? "text-yellow-600" : "text-gray-600"}`}>
+                        {option.label}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -788,14 +753,10 @@ export default function CreateLeague() {
                   >
                     <div className="flex items-center justify-between mb-4">
                       <div className="flex items-center gap-4">
-                        <img
-                          src={getLeagueLogo(league, "yellow,orange,red", 200)}
-                          alt={league.name}
-                          className="w-14 h-14 rounded-full shadow-md object-cover"
-                          onError={(e) => {
-                            e.currentTarget.onerror = null;
-                            e.currentTarget.src = getLeagueLogo(league, "yellow,orange,red", 200);
-                          }}
+                        <LeagueIconDisplay
+                          league={league}
+                          size={56}
+                          className="shadow-md border-slate-200 bg-white"
                         />
                         <div>
                           <div className="flex items-center gap-2 mb-1">
@@ -1125,18 +1086,11 @@ export default function CreateLeague() {
                     <div className="bg-white/90 rounded-2xl shadow-lg border p-5">
                       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                         <div className="flex items-center gap-4">
-                          <img
-                            src={getLeagueLogo(selectedLeagueForMatches, "yellow,orange,red", 200)}
-                            alt={selectedLeagueForMatches.name}
-                            className="w-16 h-16 rounded-2xl object-cover"
-                            onError={(e) => {
-                              e.currentTarget.onerror = null;
-                              e.currentTarget.src = getLeagueLogo(
-                                { name: selectedLeagueForMatches.name },
-                                "yellow,orange,red",
-                                200
-                              );
-                            }}
+                          <LeagueIconDisplay
+                            league={selectedLeagueForMatches}
+                            size={64}
+                            className="border-slate-200 bg-white"
+                            rounded={false}
                           />
                           <div>
                             <h3 className="text-xl font-bold text-slate-800">
