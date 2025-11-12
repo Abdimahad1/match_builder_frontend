@@ -1,5 +1,5 @@
 // pages/Leagues.jsx
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import PageLayout from '../components/PageLayout';
 import { LeagueIconDisplay } from '../utils/leagueIcons';
@@ -159,35 +159,59 @@ const Leagues = () => {
     }
   }, []);
 
+  const isMountedRef = useRef(true);
+
   useEffect(() => {
-    const fetchLeagues = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const token = localStorage.getItem('token');
-        const res = await fetch(`${API_URL}/api/leagues`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined
-        });
-        const data = await res.json();
-        if (!data.success) {
-          throw new Error(data.message || 'Failed to fetch leagues');
-        }
-        const leagueList = Array.isArray(data.data) ? data.data : [];
-        setLeagues(leagueList);
-        if (leagueList.length > 0) {
-          setActiveLeagueId(leagueList[0]._id);
-        }
-      } catch (err) {
-        console.error('Error fetching leagues:', err);
-        setError(err.message || 'Unable to load leagues');
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const fetchLeaguesData = useCallback(async ({ showSpinner = false } = {}) => {
+    try {
+      if (showSpinner) setLoading(true);
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/api/leagues`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined
+      });
+      const data = await res.json();
+      if (!isMountedRef.current) return data;
+      if (!data.success) {
+        if (showSpinner) setError(data.message || 'Failed to fetch leagues');
         setLeagues([]);
-      } finally {
+        return data;
+      }
+      const leagueList = Array.isArray(data.data) ? data.data : [];
+      setLeagues(leagueList);
+      setActiveLeagueId(prev => {
+        if (prev && leagueList.some(league => league._id === prev)) {
+          return prev;
+        }
+        return leagueList.length > 0 ? leagueList[0]._id : null;
+      });
+      setError(null);
+      return data;
+    } catch (err) {
+      console.error('Error fetching leagues:', err);
+      if (isMountedRef.current) {
+        if (showSpinner) setError(err.message || 'Unable to load leagues');
+        setLeagues([]);
+      }
+      return null;
+    } finally {
+      if (showSpinner && isMountedRef.current) {
         setLoading(false);
       }
-    };
-
-    fetchLeagues();
+    }
   }, []);
+
+  useEffect(() => {
+    fetchLeaguesData({ showSpinner: true });
+    const intervalId = setInterval(() => {
+      fetchLeaguesData();
+    }, 1000);
+    return () => clearInterval(intervalId);
+  }, [fetchLeaguesData]);
 
   const years = useMemo(() => {
     const uniqueYears = new Set();

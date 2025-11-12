@@ -334,16 +334,7 @@ const Match = () => {
         }
         showAlert("Successfully joined league! 🎉", true);
         
-        // Refresh the leagues data
-        const [leaguesRes, myLeaguesRes] = await Promise.all([
-          axios.get(`${API_URL}/api/leagues`),
-          axios.get(`${API_URL}/api/leagues/my-leagues`, {
-            headers: { Authorization: `Bearer ${token}` }
-          })
-        ]);
-
-        if (leaguesRes.data.success) setLeagues(leaguesRes.data.data);
-        if (myLeaguesRes.data.success) setMyLeagues(myLeaguesRes.data.data);
+        await fetchLeagueData();
       }
     } catch (err) {
       console.error("Error joining league details:", err);
@@ -389,16 +380,7 @@ const Match = () => {
         showAlert("Match result updated successfully!", true);
         setEditingMatch(null);
         setTempScores({});
-        // Refresh data
-        const [leaguesRes, myLeaguesRes] = await Promise.all([
-          axios.get(`${API_URL}/api/leagues`),
-          axios.get(`${API_URL}/api/leagues/my-leagues`, {
-            headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-          })
-        ]);
-
-        if (leaguesRes.data.success) setLeagues(leaguesRes.data.data);
-        if (myLeaguesRes.data.success) setMyLeagues(myLeaguesRes.data.data);
+        await fetchLeagueData();
       }
     } catch (err) {
       console.error("Error updating match:", err);
@@ -457,22 +439,7 @@ const Match = () => {
 
       if (res.data.success) {
         showAlert("Matches generated successfully! League is now active.", true);
-
-        const [leaguesRes, myLeaguesRes] = await Promise.all([
-          axios.get(`${API_URL}/api/leagues`),
-          axios.get(`${API_URL}/api/leagues/my-leagues`, {
-            headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-          })
-        ]);
-
-        if (leaguesRes.data.success) setLeagues(leaguesRes.data.data);
-        if (myLeaguesRes.data.success) {
-          setMyLeagues(myLeaguesRes.data.data);
-          const updatedLeague = myLeaguesRes.data.data.find(l => l._id === leagueId);
-          if (updatedLeague) {
-            setActiveLeague(updatedLeague._id);
-          }
-        }
+        await fetchLeagueData();
       }
     } catch (err) {
       console.error("Error generating matches:", err);

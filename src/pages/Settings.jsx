@@ -1,5 +1,5 @@
 // pages/Settings.jsx
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import PageLayout from '../components/PageLayout';
 
@@ -52,50 +52,67 @@ const Settings = () => {
   const [selectedTeamLogoUrl, setSelectedTeamLogoUrl] = useState('');
 
   const fileInputRef = useRef(null);
-  const token = useMemo(() => localStorage.getItem('token') || '', []);
-
   const selectedLeague = useMemo(
     () => GLOBAL_LEAGUES.find(l => l.code === selectedLeagueCode) || null,
     [selectedLeagueCode]
   );
   const leagueTeams = selectedLeague ? selectedLeague.teams : [];
 
-  const showAlert = (msg, success = false) => setAlert({ msg, success });
+  const showAlert = useCallback((msg, success = false) => setAlert({ msg, success }), []);
   const closeAlert = () => setAlert(null);
 
   // Load current user settings
+  const isMountedRef = useRef(true);
+
   useEffect(() => {
-    const load = async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/auth/me`, {
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: token ? `Bearer ${token}` : ''
-          }
-        });
-        const data = await res.json();
-        if (!data.success) {
-          showAlert('Failed to load settings', false);
-          setLoading(false);
-          return;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const fetchSettings = useCallback(async ({ showSpinner = false } = {}) => {
+    const authToken = localStorage.getItem('token');
+    try {
+      if (showSpinner) setLoading(true);
+      const res = await fetch(`${API_URL}/api/auth/me`, {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: authToken ? `Bearer ${authToken}` : ''
         }
-        const s = data.data?.settings || {};
-        setProfileImageUrl(s.profileImageUrl || '');
-        setSelectedLeagueCode(s.selectedLeague?.code || '');
-        setSelectedTeamName(s.selectedTeam?.name || '');
-        setSelectedTeamLogoUrl(s.selectedTeam?.logoUrl || '');
-        if (data.data) {
-          localStorage.setItem('user', JSON.stringify(data.data));
-        }
-      } catch (e) {
-        console.error(e);
-        showAlert('Server error while loading settings', false);
-      } finally {
+      });
+      const data = await res.json();
+      if (!isMountedRef.current) return data;
+      if (!data.success) {
+        if (showSpinner) showAlert('Failed to load settings', false);
+        return data;
+      }
+      const s = data.data?.settings || {};
+      setProfileImageUrl(s.profileImageUrl || '');
+      setSelectedLeagueCode(s.selectedLeague?.code || '');
+      setSelectedTeamName(s.selectedTeam?.name || '');
+      setSelectedTeamLogoUrl(s.selectedTeam?.logoUrl || '');
+      if (data.data) {
+        localStorage.setItem('user', JSON.stringify(data.data));
+      }
+      return data;
+    } catch (e) {
+      console.error(e);
+      if (showSpinner) showAlert('Server error while loading settings', false);
+      return null;
+    } finally {
+      if (showSpinner && isMountedRef.current) {
         setLoading(false);
       }
-    };
-    load();
-  }, [token]);
+    }
+  }, [showAlert]);
+
+  useEffect(() => {
+    fetchSettings({ showSpinner: true });
+    const intervalId = setInterval(() => {
+      fetchSettings();
+    }, 1000);
+    return () => clearInterval(intervalId);
+  }, [fetchSettings]);
 
   // Handle local team selection updates logo
   useEffect(() => {
@@ -121,6 +138,7 @@ const Settings = () => {
   const onSave = async () => {
     setSaving(true);
     try {
+      const authToken = localStorage.getItem('token');
       const updatedSettings = {
         profileImageUrl,
         selectedLeague: {
@@ -136,7 +154,7 @@ const Settings = () => {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: token ? `Bearer ${token}` : ''
+          Authorization: authToken ? `Bearer ${authToken}` : ''
         },
         body: JSON.stringify(updatedSettings)
       });

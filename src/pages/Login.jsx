@@ -14,6 +14,13 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("role");
+    localStorage.removeItem("username");
+    localStorage.removeItem("user");
+  }, []);
+
   const showAlert = (msg, success = false) => {
     setAlert({ msg, success });
   };
@@ -29,10 +36,12 @@ export default function Login() {
 
     setLoading(true);
 
+    const controller = new AbortController();
+    let timeoutId;
+
     try {
       // Set timeout for the request
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+      timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
 
       const startTime = Date.now();
       
@@ -49,8 +58,6 @@ export default function Login() {
         signal: controller.signal
       });
 
-      clearTimeout(timeoutId);
-
       const responseTime = Date.now() - startTime;
       console.log(`Login API response time: ${responseTime}ms`);
 
@@ -63,6 +70,7 @@ export default function Login() {
       }
 
       // ✅ Store user data immediately
+      localStorage.clear();
       localStorage.setItem("token", data.data.token);
       localStorage.setItem("role", data.data.role);
       localStorage.setItem("username", data.data.username);
@@ -102,6 +110,9 @@ export default function Login() {
         showAlert("❌ Server error - please try again", false);
       }
     } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
       setLoading(false);
     }
   };
