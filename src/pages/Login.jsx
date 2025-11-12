@@ -26,97 +26,122 @@ export default function Login() {
     setAlert({ msg, success });
   };
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
+const handleLogin = async (e) => {
+  e.preventDefault();
+  
+  // Basic validation
+  if (!username.trim() || !password.trim()) {
+    showAlert("❌ Please fill in all fields", false);
+    return;
+  }
+
+  setLoading(true);
+
+  const controller = new AbortController();
+  let timeoutId;
+
+  try {
+    // Set timeout for the request - increased to 15 seconds for better reliability
+    timeoutId = setTimeout(() => {
+      console.log("Request timeout triggered - aborting fetch");
+      controller.abort();
+    }, 15000); // Increased to 15 seconds
+
+    const startTime = Date.now();
     
-    // Basic validation
-    if (!username.trim() || !password.trim()) {
-      showAlert("❌ Please fill in all fields", false);
+    const res = await fetch(`${API_URL}/api/auth/login`, {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        "X-Request-ID": Date.now().toString()
+      },
+      body: JSON.stringify({ 
+        username: username.trim(), 
+        password: password.trim() 
+      }),
+      signal: controller.signal
+    });
+
+    // Clear timeout immediately after response is received
+    clearTimeout(timeoutId);
+    timeoutId = null;
+
+    const responseTime = Date.now() - startTime;
+    console.log(`Login API response time: ${responseTime}ms`);
+
+    // Check if response is OK before parsing JSON
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error(`HTTP error! status: ${res.status}, response:`, errorText);
+      throw new Error(`Server returned ${res.status}: ${res.statusText}`);
+    }
+
+    const data = await res.json();
+
+    if (!data.success) {
+      showAlert("❌ " + (data.message || "Login failed"), false);
       return;
     }
 
-    setLoading(true);
+    // ✅ Store user data immediately
+    localStorage.clear();
+    localStorage.setItem("token", data.data.token);
+    localStorage.setItem("role", data.data.role);
+    localStorage.setItem("username", data.data.username);
 
-    const controller = new AbortController();
-    let timeoutId;
-
-    try {
-      // Set timeout for the request
-      timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
-
-      const startTime = Date.now();
-      
-      const res = await fetch(`${API_URL}/api/auth/login`, {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "X-Request-ID": Date.now().toString() // Add request ID for tracking
-        },
-        body: JSON.stringify({ 
-          username: username.trim(), 
-          password: password.trim() 
-        }),
-        signal: controller.signal
-      });
-
-      const responseTime = Date.now() - startTime;
-      console.log(`Login API response time: ${responseTime}ms`);
-
-      const data = await res.json();
-
-      if (!data.success) {
-        showAlert("❌ " + (data.message || "Login failed"), false);
-        setLoading(false);
-        return;
+    // ✅ Use the user data from login response directly (no second API call)
+    const userData = {
+      _id: data.data._id,
+      userCode: data.data.userCode,
+      username: data.data.username,
+      phoneNumber: data.data.phoneNumber,
+      role: data.data.role,
+      isAdmin: data.data.isAdmin,
+      settings: data.data.settings || {
+        profileImageUrl: "",
+        selectedLeague: { code: "", name: "" },
+        selectedTeam: { name: "", logoUrl: "" }
       }
+    };
+    
+    localStorage.setItem("user", JSON.stringify(userData));
 
-      // ✅ Store user data immediately
-      localStorage.clear();
-      localStorage.setItem("token", data.data.token);
-      localStorage.setItem("role", data.data.role);
-      localStorage.setItem("username", data.data.username);
+    showAlert("🎉 Login Successful!", true);
 
-      // ✅ Use the user data from login response directly (no second API call)
-      const userData = {
-        _id: data.data._id,
-        userCode: data.data.userCode,
-        username: data.data.username,
-        phoneNumber: data.data.phoneNumber,
-        role: data.data.role,
-        isAdmin: data.data.isAdmin,
-        settings: data.data.settings || {
-          profileImageUrl: "",
-          selectedLeague: { code: "", name: "" },
-          selectedTeam: { name: "", logoUrl: "" }
-        }
-      };
-      
-      localStorage.setItem("user", JSON.stringify(userData));
+    // ✅ Navigate immediately without waiting for profile fetch
+    const route = data.data.role === "admin" ? "/admin" : "/dashboard";
+    
+    // Small delay to show success message
+    setTimeout(() => {
+      navigate(route, { replace: true });
+    }, 500);
 
-      showAlert("🎉 Login Successful!", true);
-
-      // ✅ Navigate immediately without waiting for profile fetch
-      const route = data.data.role === "admin" ? "/admin" : "/dashboard";
-      
-      // Small delay to show success message
-      setTimeout(() => {
-        navigate(route, { replace: true });
-      }, 500);
-
-    } catch (error) {
-      console.error("Login error:", error);
-      if (error.name === 'AbortError') {
-        showAlert("❌ Request timeout - server is taking too long", false);
-      } else {
-        showAlert("❌ Server error - please try again", false);
-      }
-    } finally {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-      setLoading(false);
+  } catch (error) {
+    console.error("Login error:", error);
+    
+    // Make sure timeout is cleared in catch block
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      timeoutId = null;
     }
-  };
+    
+    if (error.name === 'AbortError') {
+      showAlert("❌ Request timeout - please check your connection and try again", false);
+    } else if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      showAlert("❌ Network error - please check your internet connection", false);
+    } else if (error.message.includes('Server returned')) {
+      showAlert(`❌ ${error.message}`, false);
+    } else {
+      showAlert("❌ Login failed - please try again", false);
+    }
+  } finally {
+    // Final cleanup - ensure timeout is always cleared
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+    setLoading(false);
+  }
+};
 
   const closeAlert = () => setAlert(null);
 
