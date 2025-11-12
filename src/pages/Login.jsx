@@ -37,16 +37,7 @@ const handleLogin = async (e) => {
 
   setLoading(true);
 
-  const controller = new AbortController();
-  let timeoutId;
-
   try {
-    // Set timeout for the request - increased to 15 seconds for better reliability
-    timeoutId = setTimeout(() => {
-      console.log("Request timeout triggered - aborting fetch");
-      controller.abort();
-    }, 15000); // Increased to 15 seconds
-
     const startTime = Date.now();
     
     const res = await fetch(`${API_URL}/api/auth/login`, {
@@ -58,22 +49,18 @@ const handleLogin = async (e) => {
       body: JSON.stringify({ 
         username: username.trim(), 
         password: password.trim() 
-      }),
-      signal: controller.signal
+      })
+      // Removed signal completely
     });
-
-    // Clear timeout immediately after response is received
-    clearTimeout(timeoutId);
-    timeoutId = null;
 
     const responseTime = Date.now() - startTime;
     console.log(`Login API response time: ${responseTime}ms`);
 
-    // Check if response is OK before parsing JSON
+    // Check HTTP status first
     if (!res.ok) {
       const errorText = await res.text();
-      console.error(`HTTP error! status: ${res.status}, response:`, errorText);
-      throw new Error(`Server returned ${res.status}: ${res.statusText}`);
+      console.error('Server response not OK:', res.status, errorText);
+      throw new Error(`Server error: ${res.status}`);
     }
 
     const data = await res.json();
@@ -89,7 +76,7 @@ const handleLogin = async (e) => {
     localStorage.setItem("role", data.data.role);
     localStorage.setItem("username", data.data.username);
 
-    // ✅ Use the user data from login response directly (no second API call)
+    // ✅ Use the user data from login response directly
     const userData = {
       _id: data.data._id,
       userCode: data.data.userCode,
@@ -108,10 +95,9 @@ const handleLogin = async (e) => {
 
     showAlert("🎉 Login Successful!", true);
 
-    // ✅ Navigate immediately without waiting for profile fetch
+    // ✅ Navigate immediately
     const route = data.data.role === "admin" ? "/admin" : "/dashboard";
     
-    // Small delay to show success message
     setTimeout(() => {
       navigate(route, { replace: true });
     }, 500);
@@ -119,26 +105,14 @@ const handleLogin = async (e) => {
   } catch (error) {
     console.error("Login error:", error);
     
-    // Make sure timeout is cleared in catch block
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-      timeoutId = null;
-    }
-    
-    if (error.name === 'AbortError') {
-      showAlert("❌ Request timeout - please check your connection and try again", false);
-    } else if (error.name === 'TypeError' && error.message.includes('fetch')) {
-      showAlert("❌ Network error - please check your internet connection", false);
-    } else if (error.message.includes('Server returned')) {
-      showAlert(`❌ ${error.message}`, false);
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      showAlert("❌ Network error - please check your connection", false);
+    } else if (error.message.includes('Server error')) {
+      showAlert("❌ Server is temporarily unavailable", false);
     } else {
       showAlert("❌ Login failed - please try again", false);
     }
   } finally {
-    // Final cleanup - ensure timeout is always cleared
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-    }
     setLoading(false);
   }
 };

@@ -1,5 +1,5 @@
 // pages/Settings.jsx
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import PageLayout from '../components/PageLayout';
 
@@ -157,19 +157,11 @@ const Settings = () => {
   const showAlert = useCallback((msg, success = false) => setAlert({ msg, success }), []);
   const closeAlert = () => setAlert(null);
 
-  // Load current user settings
-  const isMountedRef = useRef(true);
-
-  useEffect(() => {
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, []);
-
-  const fetchSettings = useCallback(async ({ showSpinner = false } = {}) => {
+  // Load current user settings - ONLY ONCE
+  const fetchSettings = useCallback(async () => {
     const authToken = localStorage.getItem('token');
     try {
-      if (showSpinner) setLoading(true);
+      setLoading(true);
       const res = await fetch(`${API_URL}/api/auth/me`, {
         headers: {
           'Content-Type': 'application/json',
@@ -177,36 +169,31 @@ const Settings = () => {
         }
       });
       const data = await res.json();
-      if (!isMountedRef.current) return data;
-      if (!data.success) {
-        if (showSpinner) showAlert('Failed to load settings', false);
-        return data;
+      
+      if (data.success) {
+        const s = data.data?.settings || {};
+        // Only set initial values, these won't be overwritten later
+        setSelectedLeagueCode(s.selectedLeague?.code || '');
+        setSelectedTeamName(s.selectedTeam?.name || '');
+        setSelectedTeamLogoUrl(s.selectedTeam?.logoUrl || '');
+        
+        if (data.data) {
+          localStorage.setItem('user', JSON.stringify(data.data));
+        }
+      } else {
+        showAlert('Failed to load settings', false);
       }
-      const s = data.data?.settings || {};
-      setSelectedLeagueCode(s.selectedLeague?.code || '');
-      setSelectedTeamName(s.selectedTeam?.name || '');
-      setSelectedTeamLogoUrl(s.selectedTeam?.logoUrl || '');
-      if (data.data) {
-        localStorage.setItem('user', JSON.stringify(data.data));
-      }
-      return data;
     } catch (e) {
       console.error(e);
-      if (showSpinner) showAlert('Server error while loading settings', false);
-      return null;
+      showAlert('Server error while loading settings', false);
     } finally {
-      if (showSpinner && isMountedRef.current) {
-        setLoading(false);
-      }
+      setLoading(false);
     }
   }, [showAlert]);
 
+  // Load settings only once when component mounts
   useEffect(() => {
-    fetchSettings({ showSpinner: true });
-    const intervalId = setInterval(() => {
-      fetchSettings();
-    }, 1000);
-    return () => clearInterval(intervalId);
+    fetchSettings();
   }, [fetchSettings]);
 
   // Handle local team selection updates logo
@@ -232,6 +219,7 @@ const Settings = () => {
           logoUrl: selectedTeamLogoUrl
         }
       };
+      
       const res = await fetch(`${API_URL}/api/auth/settings`, {
         method: 'PUT',
         headers: {
@@ -240,18 +228,19 @@ const Settings = () => {
         },
         body: JSON.stringify(updatedSettings)
       });
+      
       const data = await res.json();
       if (!data.success) {
         showAlert(data.message || 'Failed to save settings', false);
         return;
       }
+      
       showAlert('Settings saved successfully', true);
+      
+      // Update local storage with new settings
       if (data.data) {
         localStorage.setItem('user', JSON.stringify(data.data));
-        const updated = data.data.settings || {};
-        setSelectedLeagueCode(updated.selectedLeague?.code || '');
-        setSelectedTeamName(updated.selectedTeam?.name || '');
-        setSelectedTeamLogoUrl(updated.selectedTeam?.logoUrl || '');
+        // Don't reset the state here - keep the user's current selection
       }
     } catch (e) {
       console.error(e);
