@@ -7,13 +7,13 @@ const Report = () => {
   const [isFlipped, setIsFlipped] = useState(false);
   
   const developerInfo = {
-    name: "Your Name",
+    name: "Abdimahad Hussein Abdulle",
     title: "Full Stack Developer",
-    location: "Your City, Country",
-    phone: "+1234567890",
-    email: "your.email@domain.com",
+    location: "Daarusalam Deyniile, Somalia",
+    phone: "+252613797852",
+    email: "engmaalik07@domain.com",
     skills: ["React", "Node.js", "JavaScript", "TypeScript", "UI/UX Design"],
-    experience: "5+ Years",
+    experience: "4+ Years",
     projects: "50+ Completed"
   };
 
