@@ -28,7 +28,6 @@ export default function Login() {
 const handleLogin = async (e) => {
   e.preventDefault();
   
-  // Basic validation
   if (!username.trim() || !password.trim()) {
     showAlert("❌ Please fill in all fields", false);
     return;
@@ -36,16 +35,7 @@ const handleLogin = async (e) => {
 
   setLoading(true);
 
-  const controller = new AbortController();
-  let timeoutId;
-
   try {
-    // Set timeout for the request - increased to 30 seconds
-    timeoutId = setTimeout(() => {
-      console.log('⏰ Request timeout triggered - aborting');
-      controller.abort();
-    }, 30000); // 30 seconds
-
     const startTime = Date.now();
     
     console.log('🔐 Sending login request to:', `${API_URL}/api/auth/login`);
@@ -60,44 +50,30 @@ const handleLogin = async (e) => {
         username: username.trim(), 
         password: password.trim() 
       }),
-      signal: controller.signal,
-      mode: 'cors',
       credentials: 'include'
     });
 
-    // CLEAR TIMEOUT IMMEDIATELY when we get a response
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-      timeoutId = null;
-    }
-
     const responseTime = Date.now() - startTime;
     console.log(`⏱️ Login API response time: ${responseTime}ms`);
-    console.log('📨 Response status:', res.status, res.statusText);
 
-    // Check if response is OK
     if (!res.ok) {
       const errorText = await res.text();
-      console.error('❌ Server error response:', errorText);
       throw new Error(`HTTP error! status: ${res.status}`);
     }
 
     const data = await res.json();
-    console.log('✅ Login response data:', data);
 
     if (!data.success) {
       showAlert("❌ " + (data.message || "Login failed"), false);
-      setLoading(false);
       return;
     }
 
-    // ✅ Store user data immediately
+    // Store user data and navigate (same as before)
     localStorage.clear();
     localStorage.setItem("token", data.data.token);
     localStorage.setItem("role", data.data.role);
     localStorage.setItem("username", data.data.username);
 
-    // ✅ Use the user data from login response directly
     const userData = {
       _id: data.data._id,
       userCode: data.data.userCode,
@@ -114,42 +90,19 @@ const handleLogin = async (e) => {
     
     localStorage.setItem("user", JSON.stringify(userData));
 
-    console.log('💾 User data stored:', userData);
-
     showAlert("🎉 Login Successful! Redirecting...", true);
 
-    // ✅ Navigate immediately
     const route = data.data.role === "admin" ? "/admin" : "/dashboard";
-    
-    setTimeout(() => {
-      navigate(route, { replace: true });
-    }, 1000);
+    setTimeout(() => navigate(route, { replace: true }), 1000);
 
   } catch (error) {
-    console.error("💥 Login error details:", error);
-    console.error("📛 Error name:", error.name);
-    console.error("📝 Error message:", error.message);
-    
-    // Don't show alert for AbortError if it happened after we got a response
-    if (error.name === 'AbortError' && !timeoutId) {
-      console.log('🔇 AbortError after successful response - ignoring');
-      return;
-    }
-    
-    if (error.name === 'AbortError') {
-      showAlert("❌ Request timeout - server took too long to respond", false);
-    } else if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
-      showAlert("❌ Network error - cannot connect to server. Please check your connection.", false);
-    } else if (error.message.includes('HTTP error')) {
-      showAlert("❌ Server error - please try again later", false);
+    console.error("Login error:", error);
+    if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
+      showAlert("❌ Network error - cannot connect to server", false);
     } else {
       showAlert("❌ Login failed: " + error.message, false);
     }
   } finally {
-    // Always clear timeout
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-    }
     setLoading(false);
   }
 };
