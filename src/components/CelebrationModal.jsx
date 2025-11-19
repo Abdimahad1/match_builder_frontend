@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { Crown, X, Trophy, Star, Confetti } from 'lucide-react';
+import { Crown, X, Trophy, Star } from 'lucide-react'; // Removed Confetti
 import { useEffect, useState } from 'react';
 
 const CelebrationModal = ({ celebration, onDismiss }) => {
