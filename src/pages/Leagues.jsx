@@ -3,10 +3,11 @@ import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import PageLayout from '../components/PageLayout';
 import { LeagueIconDisplay } from '../utils/leagueIcons';
-import { RefreshCw, Wifi, WifiOff } from 'lucide-react';
+import { Crown, Trophy, Star, Award } from 'lucide-react';
+import { useCelebration } from '../contexts/CelebrationContext';
+import CelebrationModal from '../components/CelebrationModal';
 
 const API_URL = import.meta.env.VITE_API_URL;
-const WS_URL = import.meta.env.VITE_WS_URL || API_URL.replace('http', 'ws');
 
 const months = [
   { id: 'all', name: 'All Months' },
@@ -143,89 +144,21 @@ const buildStandings = (league, userTeamName = '') => {
 const Leagues = () => {
   const [leagues, setLeagues] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [activeLeagueId, setActiveLeagueId] = useState(null);
   const [selectedYear, setSelectedYear] = useState('all');
   const [selectedMonth, setSelectedMonth] = useState('all');
   const [selectedWeek, setSelectedWeek] = useState('all');
   const [user, setUser] = useState(null);
-  const [connectionStatus, setConnectionStatus] = useState('connecting');
-  const [lastUpdate, setLastUpdate] = useState(null);
+  const [celebratingWinners, setCelebratingWinners] = useState([]);
 
-  const isMountedRef = useRef(true);
-  const wsRef = useRef(null);
-  const reconnectTimeoutRef = useRef(null);
-
-  useEffect(() => {
-    return () => {
-      isMountedRef.current = false;
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-    };
-  }, []);
-
-  // WebSocket connection setup
-  const connectWebSocket = useCallback(() => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
-
-    try {
-      // Close existing connection
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-
-      const wsUrl = `${WS_URL.replace('/api', '')}/ws?token=${token}`;
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        console.log('🟢 WebSocket connected for Leagues page');
-        setConnectionStatus('connected');
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          console.log('📨 Leagues WebSocket message received:', data);
-          
-          if (data.type === 'LEAGUE_UPDATED' || data.type === 'MATCH_UPDATED' || data.type === 'PARTICIPANT_ADDED') {
-            console.log('🔄 Real-time leagues update received, refreshing data...');
-            fetchLeaguesData({ showSpinner: false, silent: true });
-          }
-        } catch (error) {
-          console.error('Error parsing WebSocket message:', error);
-        }
-      };
-
-      ws.onclose = (event) => {
-        console.log('🔴 Leagues WebSocket disconnected:', event.code, event.reason);
-        setConnectionStatus('disconnected');
-        
-        // Attempt reconnect after 3 seconds
-        if (isMountedRef.current) {
-          reconnectTimeoutRef.current = setTimeout(() => {
-            console.log('🔄 Attempting to reconnect Leagues WebSocket...');
-            connectWebSocket();
-          }, 3000);
-        }
-      };
-
-      ws.onerror = (error) => {
-        console.error('Leagues WebSocket error:', error);
-        setConnectionStatus('error');
-      };
-
-    } catch (error) {
-      console.error('Leagues WebSocket connection failed:', error);
-      setConnectionStatus('error');
-    }
-  }, []);
+  // Celebration context
+  const { 
+    showCelebration, 
+    currentCelebration, 
+    dismissCelebration,
+    dismissAllCelebrations 
+  } = useCelebration();
 
   useEffect(() => {
     const cachedUser = localStorage.getItem('user');
@@ -238,13 +171,38 @@ const Leagues = () => {
     }
   }, []);
 
-  const fetchLeaguesData = useCallback(async ({ showSpinner = false, silent = false } = {}) => {
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // Fetch celebrating winners
+  const fetchCelebratingWinners = useCallback(async () => {
     try {
-      if (showSpinner && !silent) setLoading(true);
-      if (!showSpinner && !silent) setRefreshing(true);
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_URL}/api/leagues/winners/celebrating`, {
+        headers: {
+          'Authorization': token ? `Bearer ${token}` : ''
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setCelebratingWinners(data.data);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching celebrating winners:', error);
+    }
+  }, []);
 
-      console.log('🔍 Fetching leagues data...');
-
+  const fetchLeaguesData = useCallback(async ({ showSpinner = false } = {}) => {
+    try {
+      if (showSpinner) setLoading(true);
       const token = localStorage.getItem('token');
       const res = await fetch(`${API_URL}/api/leagues`, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined
@@ -252,7 +210,7 @@ const Leagues = () => {
       const data = await res.json();
       if (!isMountedRef.current) return data;
       if (!data.success) {
-        if (showSpinner && !silent) setError(data.message || 'Failed to fetch leagues');
+        if (showSpinner) setError(data.message || 'Failed to fetch leagues');
         setLeagues([]);
         return data;
       }
@@ -265,57 +223,32 @@ const Leagues = () => {
         return leagueList.length > 0 ? leagueList[0]._id : null;
       });
       setError(null);
-      setLastUpdate(new Date());
+
+      // Fetch celebrating winners
+      await fetchCelebratingWinners();
+
       return data;
     } catch (err) {
       console.error('Error fetching leagues:', err);
       if (isMountedRef.current) {
-        if (showSpinner && !silent) setError(err.message || 'Unable to load leagues');
+        if (showSpinner) setError(err.message || 'Unable to load leagues');
         setLeagues([]);
       }
       return null;
     } finally {
-      if (showSpinner && isMountedRef.current && !silent) {
+      if (showSpinner && isMountedRef.current) {
         setLoading(false);
       }
-      if (!silent) {
-        setRefreshing(false);
-      }
     }
-  }, []);
+  }, [fetchCelebratingWinners]);
 
-  // Manual refresh function
-  const handleManualRefresh = useCallback(() => {
-    fetchLeaguesData({ showSpinner: false });
-  }, [fetchLeaguesData]);
-
-  // Initial data load and WebSocket setup
   useEffect(() => {
-    const initializeLeaguesData = async () => {
-      await fetchLeaguesData({ showSpinner: true });
-      connectWebSocket();
-    };
-
-    initializeLeaguesData();
-
-    // Fallback polling every 30 seconds in case WebSocket fails
-    const fallbackInterval = setInterval(() => {
-      if (connectionStatus !== 'connected') {
-        console.log('🔄 Leagues fallback polling...');
-        fetchLeaguesData({ showSpinner: false, silent: true });
-      }
-    }, 30000);
-
-    return () => {
-      clearInterval(fallbackInterval);
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-    };
-  }, [fetchLeaguesData, connectWebSocket]);
+    fetchLeaguesData({ showSpinner: true });
+    const intervalId = setInterval(() => {
+      fetchLeaguesData();
+    }, 1000);
+    return () => clearInterval(intervalId);
+  }, [fetchLeaguesData]);
 
   const years = useMemo(() => {
     const uniqueYears = new Set();
@@ -397,31 +330,20 @@ const Leagues = () => {
   const noFilteredLeagues =
     !loading && !error && leagues.length > 0 && filteredLeagues.length === 0;
 
-  // Connection status indicator
-  const ConnectionStatus = () => {
-    const statusConfig = {
-      connecting: { color: 'bg-yellow-500', icon: RefreshCw, text: 'Connecting...', spinning: true },
-      connected: { color: 'bg-green-500', icon: Wifi, text: 'Live', spinning: false },
-      disconnected: { color: 'bg-red-500', icon: WifiOff, text: 'Offline', spinning: false },
-      error: { color: 'bg-red-500', icon: WifiOff, text: 'Connection Error', spinning: false }
-    };
-
-    const config = statusConfig[connectionStatus] || statusConfig.connecting;
-    const Icon = config.icon;
-
-    return (
-      <div className="flex items-center gap-2 text-sm">
-        <div className={`w-2 h-2 rounded-full ${config.color} animate-pulse`}></div>
-        <Icon className={`w-3 h-3 ${config.spinning ? 'animate-spin' : ''}`} />
-        <span className="text-slate-600">{config.text}</span>
-        {lastUpdate && (
-          <span className="text-slate-400 text-xs">
-            Updated {lastUpdate.toLocaleTimeString()}
-          </span>
-        )}
-      </div>
-    );
+  // Calculate days left for celebration
+  const getDaysLeft = (celebrationEnds) => {
+    const endDate = new Date(celebrationEnds);
+    const now = new Date();
+    const diffTime = endDate - now;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays > 0 ? diffDays : 0;
   };
+
+  // Check if current league has a celebrating winner
+  const currentLeagueWinner = useMemo(() => {
+    if (!currentLeague || !currentLeague.isCelebrating) return null;
+    return currentLeague.winner;
+  }, [currentLeague]);
 
   return (
     <PageLayout
@@ -429,18 +351,11 @@ const Leagues = () => {
       pageDescription="Explore different leagues, tournaments, and competitions. Track standings and your team's progress."
       pageColor="from-yellow-500 to-orange-500"
     >
-      {/* Connection Status Bar */}
-      <div className="flex justify-between items-center mb-4 p-3 bg-white rounded-2xl shadow-sm border border-slate-200">
-        <ConnectionStatus />
-        <button
-          onClick={handleManualRefresh}
-          disabled={refreshing}
-          className="flex items-center gap-2 px-3 py-1 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-600 disabled:opacity-50 transition-colors"
-        >
-          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-          {refreshing ? 'Refreshing...' : 'Refresh'}
-        </button>
-      </div>
+      {/* Celebration Modal */}
+      <CelebrationModal
+        celebration={currentCelebration}
+        onDismiss={() => dismissCelebration(currentCelebration?._id, currentCelebration?.winner.teamName)}
+      />
 
       {loading && (
         <motion.div
@@ -488,12 +403,65 @@ const Leagues = () => {
 
       {currentLeague && (
         <>
+          {/* Current Champions Banner for Active League */}
+          {currentLeagueWinner && (
+            <motion.div
+              className="bg-gradient-to-r from-yellow-400 to-orange-500 rounded-3xl p-4 shadow-2xl text-white mb-6"
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6 }}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="relative">
+                    <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center">
+                      {currentLeagueWinner.teamLogo ? (
+                        <img 
+                          src={currentLeagueWinner.teamLogo} 
+                          alt={currentLeagueWinner.teamName}
+                          className="w-12 h-12 rounded-lg object-cover"
+                          onError={(e) => {
+                            e.target.src = `https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(currentLeagueWinner.teamName)}&backgroundColor=yellow,orange,red&size=80`;
+                          }}
+                        />
+                      ) : (
+                        <Trophy className="w-8 h-8 text-yellow-200" />
+                      )}
+                    </div>
+                    <div className="absolute -top-2 -right-2 w-8 h-8 bg-yellow-500 rounded-full flex items-center justify-center border-2 border-white">
+                      <Crown className="w-4 h-4 text-white" />
+                    </div>
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold flex items-center gap-2">
+                      🏆 LEAGUE CHAMPION
+                    </h3>
+                    <h4 className="text-xl font-bold text-white">
+                      {currentLeagueWinner.teamName}
+                    </h4>
+                    <p className="text-yellow-200 text-sm font-medium flex items-center gap-1">
+                      <Crown className="w-4 h-4" />
+                      TAAJ CROWN PRINCE • {getDaysLeft(currentLeague.celebrationEnds)} day{getDaysLeft(currentLeague.celebrationEnds) !== 1 ? 's' : ''} left
+                    </p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="bg-yellow-500 text-yellow-900 px-4 py-2 rounded-full text-sm font-bold">
+                    CHAMPION
+                  </div>
+                  <p className="text-white/70 text-xs mt-1">
+                    Crowned on {new Date(currentLeagueWinner.awardedAt).toLocaleDateString()}
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
           <motion.div
             className="bg-white rounded-3xl p-4 shadow-lg border border-slate-200 mb-6"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
-            key={`leagues-list-${filteredLeagues.length}`}
           >
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-slate-800">Leagues</h2>
@@ -506,26 +474,39 @@ const Leagues = () => {
             </div>
 
             <div className="flex space-x-2 overflow-x-auto pb-2">
-              {filteredLeagues.map((league) => (
-                <motion.button
-                  key={league._id}
-                  onClick={() => setActiveLeagueId(league._id)}
-                  className={`flex items-center space-x-2 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-300 whitespace-nowrap flex-shrink-0 ${
-                    activeLeagueId === league._id
-                      ? 'bg-slate-800 text-white shadow-md'
-                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                  }`}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  <LeagueIconDisplay
-                    league={league}
-                    size={32}
-                    className="bg-white border-slate-200"
-                  />
-                  <span>{league.name}</span>
-                </motion.button>
-              ))}
+              {filteredLeagues.map((league) => {
+                const isCelebrating = league.isCelebrating && league.winner?.teamName;
+                return (
+                  <motion.button
+                    key={league._id}
+                    onClick={() => setActiveLeagueId(league._id)}
+                    className={`flex items-center space-x-2 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-300 whitespace-nowrap flex-shrink-0 relative ${
+                      activeLeagueId === league._id
+                        ? 'bg-slate-800 text-white shadow-md'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    {isCelebrating && (
+                      <div className="absolute -top-1 -right-1 w-4 h-4 bg-yellow-500 rounded-full border-2 border-white flex items-center justify-center">
+                        <Crown className="w-2 h-2 text-white" />
+                      </div>
+                    )}
+                    <LeagueIconDisplay
+                      league={league}
+                      size={32}
+                      className="bg-white border-slate-200"
+                    />
+                    <span>{league.name}</span>
+                    {isCelebrating && (
+                      <span className="bg-yellow-500 text-yellow-900 text-xs px-1.5 py-0.5 rounded-full">
+                        🏆
+                      </span>
+                    )}
+                  </motion.button>
+                );
+              })}
             </div>
           </motion.div>
 
@@ -534,7 +515,6 @@ const Leagues = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.1 }}
-            key={currentLeague._id}
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-3">
@@ -547,6 +527,13 @@ const Leagues = () => {
                 <div>
                   <h3 className="text-lg font-bold">{currentLeague.name}</h3>
                   <p className="text-white/80 text-sm line-clamp-2">{description}</p>
+                  {currentLeagueWinner && (
+                    <div className="flex items-center gap-2 mt-1">
+                      <div className="bg-white/20 rounded-full px-2 py-1 text-xs">
+                        🏆 Champion: {currentLeagueWinner.teamName}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="text-right">
@@ -555,6 +542,11 @@ const Leagues = () => {
                     Matchday {matchdayDisplay}/{totalMatches}
                   </span>
                 </div>
+                {currentLeague.status === 'completed' && (
+                  <div className="mt-2 bg-green-500/80 rounded-full px-3 py-1 text-xs font-semibold">
+                    COMPLETED
+                  </div>
+                )}
               </div>
             </div>
           </motion.div>
@@ -620,11 +612,14 @@ const Leagues = () => {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.3 }}
-              key={`user-team-${userTeam.position}`}
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-xl flex items-center justify-center">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                    userTeam.position === 1 && currentLeagueWinner
+                      ? 'bg-gradient-to-r from-yellow-400 to-orange-400'
+                      : 'bg-gradient-to-r from-blue-500 to-cyan-500'
+                  }`}>
                     <span className="text-white font-bold text-sm">{userTeam.position}</span>
                   </div>
                   <div className="flex items-center space-x-2">
@@ -641,20 +636,30 @@ const Leagues = () => {
                       <p className="text-slate-600 text-sm">
                         {userTeam.team} • {userTeam.points} pts
                       </p>
+                      {userTeam.position === 1 && currentLeagueWinner && (
+                        <p className="text-yellow-600 text-xs font-bold flex items-center gap-1">
+                          <Crown className="w-3 h-3" />
+                          LEAGUE CHAMPION!
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
                 <div className="text-right">
                   <div
                     className={`px-3 py-1 rounded-full text-xs font-bold ${
-                      userTeam.position <= 2
+                      userTeam.position === 1 && currentLeagueWinner
+                        ? 'bg-yellow-100 text-yellow-800'
+                        : userTeam.position <= 2
                         ? 'bg-green-100 text-green-800'
                         : userTeam.position <= 4
                         ? 'bg-blue-100 text-blue-800'
                         : 'bg-slate-100 text-slate-800'
                     }`}
                   >
-                    {userTeam.position <= 2
+                    {userTeam.position === 1 && currentLeagueWinner
+                      ? 'CHAMPION'
+                      : userTeam.position <= 2
                       ? 'Champions League'
                       : userTeam.position <= 4
                       ? 'Europa League'
@@ -670,7 +675,6 @@ const Leagues = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.4 }}
-            key={`standings-${currentLeague._id}`}
           >
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-slate-800">League Standings</h2>
@@ -694,113 +698,138 @@ const Leagues = () => {
             </div>
 
             <div className="space-y-1">
-              {standings.map((team, index) => (
-                <motion.div
-                  key={`${team.position}-${team.team}`}
-                  className={`grid grid-cols-12 gap-2 px-3 py-3 rounded-xl border transition-all duration-300 ${
-                    team.isUserTeam
-                      ? 'bg-blue-50 border-blue-200 shadow-sm'
-                      : 'bg-white border-slate-100 hover:bg-slate-50'
-                  }`}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: index * 0.05 }}
-                  whileHover={{ scale: team.isUserTeam ? 1 : 1.02 }}
-                >
-                  <div className="col-span-1 flex items-center">
-                    <div
-                      className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                        team.position === 1
-                          ? 'bg-yellow-100 text-yellow-800'
-                          : team.position === 2
-                          ? 'bg-slate-200 text-slate-800'
-                          : team.position === 3
-                          ? 'bg-orange-100 text-orange-800'
-                          : team.position <= 4
-                          ? 'bg-blue-100 text-blue-800'
-                          : 'bg-slate-100 text-slate-600'
-                      }`}
-                    >
-                      {team.position}
+              {standings.map((team, index) => {
+                const isChampion = team.position === 1 && currentLeagueWinner;
+                return (
+                  <motion.div
+                    key={team.position}
+                    className={`grid grid-cols-12 gap-2 px-3 py-3 rounded-xl border transition-all duration-300 ${
+                      isChampion
+                        ? 'bg-gradient-to-r from-yellow-50 to-orange-50 border-yellow-200 shadow-sm'
+                        : team.isUserTeam
+                        ? 'bg-blue-50 border-blue-200 shadow-sm'
+                        : 'bg-white border-slate-100 hover:bg-slate-50'
+                    }`}
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: index * 0.05 }}
+                    whileHover={{ scale: team.isUserTeam || isChampion ? 1 : 1.02 }}
+                  >
+                    <div className="col-span-1 flex items-center">
+                      <div
+                        className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                          isChampion
+                            ? 'bg-yellow-500 text-white'
+                            : team.position === 1
+                            ? 'bg-yellow-100 text-yellow-800'
+                            : team.position === 2
+                            ? 'bg-slate-200 text-slate-800'
+                            : team.position === 3
+                            ? 'bg-orange-100 text-orange-800'
+                            : team.position <= 4
+                            ? 'bg-blue-100 text-blue-800'
+                            : 'bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        {isChampion ? <Crown className="w-3 h-3" /> : team.position}
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="col-span-4 flex items-center space-x-2">
-                    <img 
-                      src={team.logo} 
-                      alt={team.team}
-                      className="w-6 h-6 rounded-full object-cover flex-shrink-0"
-                      onError={(e) => {
-                        e.target.src = `https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(team.team)}&backgroundColor=blue,green&size=80`;
-                      }}
-                    />
-                    <span
-                      className={`font-medium text-sm truncate ${
-                        team.isUserTeam ? 'text-blue-700 font-bold' : 'text-slate-800'
-                      }`}
-                    >
-                      {team.team}
-                    </span>
-                    {team.isUserTeam && (
-                      <span className="ml-1 bg-blue-100 text-blue-800 text-xs px-1.5 py-0.5 rounded-full flex-shrink-0">
-                        YOU
+                    <div className="col-span-4 flex items-center space-x-2">
+                      <img 
+                        src={team.logo} 
+                        alt={team.team}
+                        className="w-6 h-6 rounded-full object-cover flex-shrink-0"
+                        onError={(e) => {
+                          e.target.src = `https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(team.team)}&backgroundColor=blue,green&size=80`;
+                        }}
+                      />
+                      <span
+                        className={`font-medium text-sm truncate ${
+                          isChampion
+                            ? 'text-yellow-700 font-bold'
+                            : team.isUserTeam 
+                            ? 'text-blue-700 font-bold' 
+                            : 'text-slate-800'
+                        }`}
+                      >
+                        {team.team}
                       </span>
-                    )}
-                  </div>
+                      {isChampion && (
+                        <span className="ml-1 bg-yellow-500 text-white text-xs px-1.5 py-0.5 rounded-full flex-shrink-0 flex items-center gap-1">
+                          <Crown className="w-3 h-3" />
+                          CHAMP
+                        </span>
+                      )}
+                      {team.isUserTeam && !isChampion && (
+                        <span className="ml-1 bg-blue-100 text-blue-800 text-xs px-1.5 py-0.5 rounded-full flex-shrink-0">
+                          YOU
+                        </span>
+                      )}
+                    </div>
 
-                  <div className="col-span-1 flex items-center justify-center">
-                    <span className="text-sm text-slate-700">{team.played}</span>
-                  </div>
+                    <div className="col-span-1 flex items-center justify-center">
+                      <span className="text-sm text-slate-700">{team.played}</span>
+                    </div>
 
-                  <div className="col-span-1 flex items-center justify-center">
-                    <span className="text-sm text-green-600 font-medium">{team.won}</span>
-                  </div>
+                    <div className="col-span-1 flex items-center justify-center">
+                      <span className="text-sm text-green-600 font-medium">{team.won}</span>
+                    </div>
 
-                  <div className="col-span-1 flex items-center justify-center">
-                    <span className="text-sm text-yellow-600 font-medium">{team.drawn}</span>
-                  </div>
+                    <div className="col-span-1 flex items-center justify-center">
+                      <span className="text-sm text-yellow-600 font-medium">{team.drawn}</span>
+                    </div>
 
-                  <div className="col-span-1 flex items-center justify-center">
-                    <span className="text-sm text-red-600 font-medium">{team.lost}</span>
-                  </div>
+                    <div className="col-span-1 flex items-center justify-center">
+                      <span className="text-sm text-red-600 font-medium">{team.lost}</span>
+                    </div>
 
-                  <div className="col-span-1 flex items-center justify-center">
-                    <span
-                      className={`text-sm font-medium ${
-                        team.goalDifference > 0
-                          ? 'text-green-600'
-                          : team.goalDifference < 0
-                          ? 'text-red-600'
-                          : 'text-slate-600'
-                      }`}
-                    >
-                      {team.goalDifference > 0 ? '+' : ''}
-                      {team.goalDifference}
-                    </span>
-                  </div>
+                    <div className="col-span-1 flex items-center justify-center">
+                      <span
+                        className={`text-sm font-medium ${
+                          team.goalDifference > 0
+                            ? 'text-green-600'
+                            : team.goalDifference < 0
+                            ? 'text-red-600'
+                            : 'text-slate-600'
+                        }`}
+                      >
+                        {team.goalDifference > 0 ? '+' : ''}
+                        {team.goalDifference}
+                      </span>
+                    </div>
 
-                  <div className="col-span-2 flex items-center justify-center">
-                    <span className="bg-slate-800 text-white px-2 py-1 rounded-full text-sm font-bold min-w-8 text-center">
-                      {team.points}
-                    </span>
-                  </div>
-                </motion.div>
-              ))}
+                    <div className="col-span-2 flex items-center justify-center">
+                      <span className={`px-2 py-1 rounded-full text-sm font-bold min-w-8 text-center ${
+                        isChampion
+                          ? 'bg-yellow-500 text-white'
+                          : 'bg-slate-800 text-white'
+                      }`}>
+                        {team.points}
+                      </span>
+                    </div>
+                  </motion.div>
+                );
+              })}
             </div>
 
             <div className="mt-4 pt-4 border-t border-slate-200">
               <div className="flex flex-wrap gap-4 text-xs text-slate-600">
                 <div className="flex items-center space-x-2">
+                  <div className="w-3 h-3 bg-yellow-500 border border-yellow-600 rounded" />
+                  <span className="font-bold">Champion</span>
+                </div>
+                <div className="flex items-center space-x-2">
                   <div className="w-3 h-3 bg-yellow-100 border border-yellow-300 rounded" />
-                  <span>Champion</span>
+                  <span>1st Place</span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <div className="w-3 h-3 bg-slate-200 border border-slate-300 rounded" />
-                  <span>Runner-up</span>
+                  <span>2nd Place</span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <div className="w-3 h-3 bg-orange-100 border border-orange-300 rounded" />
-                  <span>Third Place</span>
+                  <span>3rd Place</span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <div className="w-3 h-3 bg-blue-100 border border-blue-300 rounded" />
@@ -819,7 +848,6 @@ const Leagues = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.5 }}
-            key={`progress-${playedMatches}-${totalMatches}`}
           >
             <h3 className="text-lg font-bold text-slate-800 mb-3">Season Progress</h3>
             <div className="space-y-3">
@@ -853,22 +881,28 @@ const Leagues = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.6 }}
-            key={`participants-${currentLeague.participants?.length}`}
           >
             <h3 className="text-lg font-bold text-slate-800 mb-3">League Participants</h3>
             <div className="flex flex-wrap gap-3">
               {currentLeague.participants?.map((participant, index) => {
                 const teamLogo = getTeamLogo(participant.teamName, currentLeague, userParticipant?.teamName);
+                const isChampion = currentLeagueWinner && participant.teamName === currentLeagueWinner.teamName;
                 return (
-                  <motion.div
+                  <div
                     key={participant._id || index}
-                    className={`flex items-center space-x-2 bg-slate-100 rounded-full px-3 py-2 ${
-                      participant.teamName === userParticipant?.teamName ? 'bg-blue-100 border border-blue-200' : ''
+                    className={`flex items-center space-x-2 rounded-full px-3 py-2 relative ${
+                      isChampion
+                        ? 'bg-gradient-to-r from-yellow-100 to-orange-100 border border-yellow-300'
+                        : participant.teamName === userParticipant?.teamName 
+                        ? 'bg-blue-100 border border-blue-200' 
+                        : 'bg-slate-100'
                     }`}
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: index * 0.1 }}
                   >
+                    {isChampion && (
+                      <div className="absolute -top-1 -right-1 w-4 h-4 bg-yellow-500 rounded-full border-2 border-white flex items-center justify-center">
+                        <Crown className="w-2 h-2 text-white" />
+                      </div>
+                    )}
                     <img 
                       src={teamLogo} 
                       alt={participant.teamName}
@@ -877,13 +911,22 @@ const Leagues = () => {
                         e.target.src = `https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(participant.teamName)}&backgroundColor=blue,green&size=80`;
                       }}
                     />
-                    <span className="text-sm font-medium">{participant.teamName}</span>
-                    {participant.teamName === userParticipant?.teamName && (
+                    <span className={`text-sm font-medium ${
+                      isChampion ? 'text-yellow-700 font-bold' : ''
+                    }`}>
+                      {participant.teamName}
+                    </span>
+                    {isChampion && (
+                      <span className="bg-yellow-500 text-white text-xs px-1.5 py-0.5 rounded-full">
+                        🏆
+                      </span>
+                    )}
+                    {participant.teamName === userParticipant?.teamName && !isChampion && (
                       <span className="bg-blue-500 text-white text-xs px-1.5 py-0.5 rounded-full">
                         YOU
                       </span>
                     )}
-                  </motion.div>
+                  </div>
                 );
               })}
             </div>

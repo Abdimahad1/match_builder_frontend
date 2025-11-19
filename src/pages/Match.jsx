@@ -24,10 +24,11 @@ import {
   Save,
   AlertCircle,
   MoreVertical,
-  RefreshCw,
-  Wifi,
-  WifiOff
+  Award,
+  Star
 } from "lucide-react";
+import { useCelebration } from "../contexts/CelebrationContext";
+import CelebrationModal from "../components/CelebrationModal";
 
 const tabs = [
   { id: "all", label: "All Matches", icon: "📅" },
@@ -36,7 +37,6 @@ const tabs = [
 ];
 
 const API_URL = import.meta.env.VITE_API_URL;
-const WS_URL = import.meta.env.VITE_WS_URL || API_URL.replace('http', 'ws');
 
 const Match = () => {
   const [leagues, setLeagues] = useState([]);
@@ -48,7 +48,6 @@ const Match = () => {
   const [teamName, setTeamName] = useState("");
   const [joinCode, setJoinCode] = useState("");
   const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
   const [showJoinByCode, setShowJoinByCode] = useState(false);
   const [user, setUser] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -60,82 +59,15 @@ const Match = () => {
   const [selectedRound, setSelectedRound] = useState(null);
   const [myTeamName, setMyTeamName] = useState(null);
   const [showLeagueDropdown, setShowLeagueDropdown] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState('connecting');
-  const [lastUpdate, setLastUpdate] = useState(null);
+  const [celebratingWinners, setCelebratingWinners] = useState([]);
 
-  const isMountedRef = useRef(true);
-  const wsRef = useRef(null);
-  const reconnectTimeoutRef = useRef(null);
-
-  useEffect(() => {
-    return () => {
-      isMountedRef.current = false;
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-    };
-  }, []);
-
-  // WebSocket connection setup
-  const connectWebSocket = useCallback(() => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
-
-    try {
-      // Close existing connection
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-
-      const wsUrl = `${WS_URL.replace('/api', '')}/ws?token=${token}`;
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        console.log('🟢 WebSocket connected for Match page');
-        setConnectionStatus('connected');
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          console.log('📨 Match WebSocket message received:', data);
-          
-          if (data.type === 'MATCH_UPDATED' || data.type === 'LEAGUE_UPDATED' || data.type === 'PARTICIPANT_ADDED') {
-            console.log('🔄 Real-time match update received, refreshing data...');
-            fetchLeagueData({ showSpinner: false, silent: true });
-          }
-        } catch (error) {
-          console.error('Error parsing WebSocket message:', error);
-        }
-      };
-
-      ws.onclose = (event) => {
-        console.log('🔴 Match WebSocket disconnected:', event.code, event.reason);
-        setConnectionStatus('disconnected');
-        
-        // Attempt reconnect after 3 seconds
-        if (isMountedRef.current) {
-          reconnectTimeoutRef.current = setTimeout(() => {
-            console.log('🔄 Attempting to reconnect Match WebSocket...');
-            connectWebSocket();
-          }, 3000);
-        }
-      };
-
-      ws.onerror = (error) => {
-        console.error('Match WebSocket error:', error);
-        setConnectionStatus('error');
-      };
-
-    } catch (error) {
-      console.error('Match WebSocket connection failed:', error);
-      setConnectionStatus('error');
-    }
-  }, []);
+  // Celebration context
+  const { 
+    showCelebration, 
+    currentCelebration, 
+    dismissCelebration,
+    dismissAllCelebrations 
+  } = useCelebration();
 
   const userSelectedTeam = useMemo(() => {
     if (userSettings?.selectedTeam) {
@@ -178,14 +110,39 @@ const Match = () => {
     setTimeout(() => setAlert(null), 3000);
   }, []);
 
-  const fetchLeagueData = useCallback(async ({ showSpinner = false, silent = false } = {}) => {
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // Fetch celebrating winners
+  const fetchCelebratingWinners = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_URL}/api/leagues/winners/celebrating`, {
+        headers: {
+          'Authorization': token ? `Bearer ${token}` : ''
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setCelebratingWinners(data.data);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching celebrating winners:', error);
+    }
+  }, []);
+
+  const fetchLeagueData = useCallback(async ({ showSpinner = false } = {}) => {
     const token = localStorage.getItem('token');
     try {
-      if (showSpinner && !silent) setLoading(true);
-      if (!showSpinner && !silent) setRefreshing(true);
-
-      console.log('🔍 Fetching match data...');
-
+      if (showSpinner) setLoading(true);
       const [leaguesRes, myLeaguesRes] = await Promise.all([
         axios.get(`${API_URL}/api/leagues`).catch((err) => {
           console.error("Error fetching leagues:", err);
@@ -203,7 +160,7 @@ const Match = () => {
 
       if (leaguesRes.data.success) {
         setLeagues(leaguesRes.data.data || []);
-      } else if (showSpinner && !silent) {
+      } else if (showSpinner) {
         showAlert("Failed to load leagues", false);
       }
 
@@ -217,62 +174,37 @@ const Match = () => {
           return mine.length > 0 ? mine[0]._id : null;
         });
       } else {
-        if (showSpinner && !silent) showAlert("Failed to load your leagues", false);
+        if (showSpinner) showAlert("Failed to load your leagues", false);
         setMyLeagues([]);
       }
 
-      setLastUpdate(new Date());
+      // Fetch celebrating winners
+      await fetchCelebratingWinners();
+
       return true;
     } catch (err) {
       console.error("Error loading data:", err);
-      if (showSpinner && !silent) showAlert("Failed to load leagues", false);
+      if (showSpinner) showAlert("Failed to load leagues", false);
       if (isMountedRef.current) {
         setLeagues([]);
         setMyLeagues([]);
       }
       return null;
     } finally {
-      if (showSpinner && isMountedRef.current && !silent) {
+      if (showSpinner && isMountedRef.current) {
         setLoading(false);
       }
-      if (!silent) {
-        setRefreshing(false);
-      }
     }
-  }, [showAlert]);
+  }, [showAlert, fetchCelebratingWinners]);
 
-  // Manual refresh function
-  const handleManualRefresh = useCallback(() => {
-    fetchLeagueData({ showSpinner: false });
-  }, [fetchLeagueData]);
-
-  // Initial data load and WebSocket setup
+  // Fetch leagues on mount and poll
   useEffect(() => {
-    const initializeMatchData = async () => {
-      await fetchLeagueData({ showSpinner: true });
-      connectWebSocket();
-    };
-
-    initializeMatchData();
-
-    // Fallback polling every 30 seconds in case WebSocket fails
-    const fallbackInterval = setInterval(() => {
-      if (connectionStatus !== 'connected') {
-        console.log('🔄 Match fallback polling...');
-        fetchLeagueData({ showSpinner: false, silent: true });
-      }
-    }, 30000);
-
-    return () => {
-      clearInterval(fallbackInterval);
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-    };
-  }, [fetchLeagueData, connectWebSocket]);
+    fetchLeagueData({ showSpinner: true });
+    const intervalId = setInterval(() => {
+      fetchLeagueData();
+    }, 1000);
+    return () => clearInterval(intervalId);
+  }, [fetchLeagueData]);
 
   // Track my team name for the active league
   useEffect(() => {
@@ -554,32 +486,6 @@ const Match = () => {
     }
   };
 
-  // Connection status indicator
-  const ConnectionStatus = () => {
-    const statusConfig = {
-      connecting: { color: 'bg-yellow-500', icon: RefreshCw, text: 'Connecting...', spinning: true },
-      connected: { color: 'bg-green-500', icon: Wifi, text: 'Live', spinning: false },
-      disconnected: { color: 'bg-red-500', icon: WifiOff, text: 'Offline', spinning: false },
-      error: { color: 'bg-red-500', icon: WifiOff, text: 'Connection Error', spinning: false }
-    };
-
-    const config = statusConfig[connectionStatus] || statusConfig.connecting;
-    const Icon = config.icon;
-
-    return (
-      <div className="flex items-center gap-2 text-sm">
-        <div className={`w-2 h-2 rounded-full ${config.color} animate-pulse`}></div>
-        <Icon className={`w-3 h-3 ${config.spinning ? 'animate-spin' : ''}`} />
-        <span className="text-slate-600">{config.text}</span>
-        {lastUpdate && (
-          <span className="text-slate-400 text-xs">
-            Updated {lastUpdate.toLocaleTimeString()}
-          </span>
-        )}
-      </div>
-    );
-  };
-
   const currentLeague = myLeagues.find((l) => l._id === activeLeague);
   const availableLeagues = leagues.filter(l => 
     !myLeagues.some(myL => myL._id === l._id) && 
@@ -689,12 +595,27 @@ const Match = () => {
     return user?.username || 'Your Team';
   };
 
+  // Calculate days left for celebration
+  const getDaysLeft = (celebrationEnds) => {
+    const endDate = new Date(celebrationEnds);
+    const now = new Date();
+    const diffTime = endDate - now;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays > 0 ? diffDays : 0;
+  };
+
   return (
     <PageLayout
       pageTitle="⚽ Match Center"
       pageDescription="View matches, results, and schedules across your leagues."
       pageColor="from-green-500 to-emerald-500"
     >
+      {/* Celebration Modal */}
+      <CelebrationModal
+        celebration={currentCelebration}
+        onDismiss={() => dismissCelebration(currentCelebration?._id, currentCelebration?.winner.teamName)}
+      />
+
       {/* Alerts */}
       <AnimatePresence>
         {alert && (
@@ -712,18 +633,94 @@ const Match = () => {
         )}
       </AnimatePresence>
 
-      {/* Connection Status Bar */}
-      <div className="flex justify-between items-center mb-4 p-3 bg-white rounded-2xl shadow-sm border border-slate-200">
-        <ConnectionStatus />
-        <button
-          onClick={handleManualRefresh}
-          disabled={refreshing}
-          className="flex items-center gap-2 px-3 py-1 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-600 disabled:opacity-50 transition-colors"
+      {/* Current Champions Banner */}
+      {celebratingWinners.length > 0 && (
+        <motion.div
+          className="bg-gradient-to-r from-yellow-400 to-orange-500 rounded-3xl p-4 shadow-2xl text-white mb-6"
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
         >
-          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-          {refreshing ? 'Refreshing...' : 'Refresh'}
-        </button>
-      </div>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-bold flex items-center gap-2">
+              <Crown className="w-5 h-5" />
+              🏆 Current Champions
+            </h3>
+            <button
+              onClick={dismissAllCelebrations}
+              className="text-white/80 hover:text-white text-sm bg-white/20 px-3 py-1 rounded-full transition-colors"
+            >
+              Dismiss All
+            </button>
+          </div>
+          
+          <div className="space-y-3">
+            {celebratingWinners.map((league) => {
+              const daysLeft = getDaysLeft(league.celebrationEnds);
+              const isUserWinner = myTeamName === league.winner.teamName;
+              
+              return (
+                <motion.div
+                  key={league._id}
+                  className="bg-white/20 rounded-2xl p-3 backdrop-blur-sm border border-white/30"
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.2 }}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="relative">
+                        <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+                          {league.winner.teamLogo ? (
+                            <img 
+                              src={league.winner.teamLogo} 
+                              alt={league.winner.teamName}
+                              className="w-8 h-8 rounded-lg object-cover"
+                              onError={(e) => {
+                                e.target.src = `https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(league.winner.teamName)}&backgroundColor=yellow,orange,red&size=80`;
+                              }}
+                            />
+                          ) : (
+                            <Trophy className="w-6 h-6 text-yellow-200" />
+                          )}
+                        </div>
+                        {isUserWinner && (
+                          <div className="absolute -top-1 -right-1 w-4 h-4 bg-green-400 rounded-full border-2 border-white flex items-center justify-center">
+                            <Star className="w-2 h-2 text-white" />
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-white text-sm">
+                          {league.winner.teamName}
+                          {isUserWinner && (
+                            <span className="ml-2 bg-green-500 text-white text-xs px-2 py-0.5 rounded-full">
+                              YOU
+                            </span>
+                          )}
+                        </h4>
+                        <p className="text-white/80 text-xs">{league.name}</p>
+                        <p className="text-yellow-200 text-xs font-medium flex items-center gap-1">
+                          <Crown className="w-3 h-3" />
+                          TAAJ CROWN PRINCE • {daysLeft} day{daysLeft !== 1 ? 's' : ''} left
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="bg-yellow-500 text-yellow-900 px-3 py-1 rounded-full text-xs font-bold">
+                        CHAMPION
+                      </div>
+                      <p className="text-white/70 text-xs mt-1">
+                        Since {new Date(league.winner.awardedAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+        </motion.div>
+      )}
 
       {/* Role Badge */}
       <div className="flex justify-center mb-6">
@@ -743,7 +740,6 @@ const Match = () => {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
-        key={`stats-${myLeagues.length}-${availableLeagues.length}`}
       >
         {[
           { 
@@ -806,16 +802,22 @@ const Match = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}
-          key={currentLeague._id}
         >
           <div className="flex flex-col md:flex-row items-center justify-between">
             <div className="flex items-center space-x-3 md:space-x-4 mb-4 md:mb-0">
-              <LeagueIconDisplay
-                league={currentLeague}
-                size={currentLeague ? 64 : 48}
-                className="bg-white/80 border border-white/40"
-                rounded={false}
-              />
+              <div className="relative">
+                <LeagueIconDisplay
+                  league={currentLeague}
+                  size={currentLeague ? 64 : 48}
+                  className="bg-white/80 border border-white/40"
+                  rounded={false}
+                />
+                {currentLeague.isCelebrating && (
+                  <div className="absolute -top-2 -right-2 w-6 h-6 bg-yellow-500 rounded-full border-2 border-white flex items-center justify-center">
+                    <Crown className="w-3 h-3 text-white" />
+                  </div>
+                )}
+              </div>
               <div className="flex-1 min-w-0">
                 <div className="bg-white/20 rounded-full px-2 py-1 inline-block mb-2">
                   <span className="text-xs font-semibold">
@@ -836,6 +838,16 @@ const Match = () => {
                     <span className="bg-yellow-500 text-black text-xs px-2 py-1 rounded-full font-semibold">
                       My Team: {myTeamName}
                     </span>
+                    {currentLeague.isCelebrating && currentLeague.winner?.teamName === myTeamName && (
+                      <span className="bg-yellow-500 text-yellow-900 text-xs px-2 py-1 rounded-full font-bold">
+                        🏆 CHAMPION
+                      </span>
+                    )}
+                  </div>
+                )}
+                {currentLeague.isCelebrating && (
+                  <div className="mt-2 bg-yellow-500/20 rounded-full px-3 py-1 text-xs text-yellow-200 border border-yellow-300/30">
+                    🎉 {currentLeague.winner?.teamName} is celebrating their victory!
                   </div>
                 )}
               </div>
@@ -942,28 +954,43 @@ const Match = () => {
                 exit={{ opacity: 0, y: -10 }}
                 className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-lg border border-slate-200 z-10 max-h-60 overflow-y-auto"
               >
-                {myLeagues.map((league) => (
-                  <button
-                    key={league._id}
-                    onClick={() => handleLeagueClick(league)}
-                    className="w-full flex items-center space-x-3 p-4 hover:bg-slate-50 transition-colors text-left border-b border-slate-100 last:border-b-0"
-                  >
-                    <LeagueIconDisplay
-                      league={league}
-                      size={40}
-                      className="bg-white border-slate-200"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-slate-800 truncate">{league.name}</div>
-                      <div className="text-xs text-slate-500 flex items-center gap-1">
-                        {league.participants?.length || 0} teams
+                {myLeagues.map((league) => {
+                  const isCelebrating = league.isCelebrating && league.winner?.teamName;
+                  return (
+                    <button
+                      key={league._id}
+                      onClick={() => handleLeagueClick(league)}
+                      className="w-full flex items-center space-x-3 p-4 hover:bg-slate-50 transition-colors text-left border-b border-slate-100 last:border-b-0"
+                    >
+                      <div className="relative">
+                        <LeagueIconDisplay
+                          league={league}
+                          size={40}
+                          className="bg-white border-slate-200"
+                        />
+                        {isCelebrating && (
+                          <div className="absolute -top-1 -right-1 w-4 h-4 bg-yellow-500 rounded-full border-2 border-white flex items-center justify-center">
+                            <Crown className="w-2 h-2 text-white" />
+                          </div>
+                        )}
                       </div>
-                    </div>
-                    {activeLeague === league._id && (
-                      <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                    )}
-                  </button>
-                ))}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-slate-800 truncate">{league.name}</div>
+                        <div className="text-xs text-slate-500 flex items-center gap-1">
+                          {league.participants?.length || 0} teams
+                          {isCelebrating && (
+                            <span className="bg-yellow-500 text-yellow-900 text-xs px-1 rounded-full">
+                              🏆
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {activeLeague === league._id && (
+                        <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                      )}
+                    </button>
+                  );
+                })}
               </motion.div>
             )}
           </AnimatePresence>
@@ -976,12 +1003,13 @@ const Match = () => {
               const participantUserId = p.userId?._id || p.userId;
               return participantUserId === user?._id;
             })?.teamName;
+            const isCelebrating = league.isCelebrating && league.winner?.teamName;
 
             return (
               <motion.button
                 key={league._id}
                 onClick={() => setActiveLeague(league._id)}
-                className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-300 whitespace-nowrap flex-shrink-0 min-w-[200px] ${
+                className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-300 whitespace-nowrap flex-shrink-0 min-w-[200px] relative ${
                   activeLeague === league._id
                     ? "bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg"
                     : "bg-slate-100 text-slate-700 hover:bg-slate-200"
@@ -989,6 +1017,11 @@ const Match = () => {
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
               >
+                {isCelebrating && (
+                  <div className="absolute -top-1 -right-1 w-4 h-4 bg-yellow-500 rounded-full border-2 border-white flex items-center justify-center">
+                    <Crown className="w-2 h-2 text-white" />
+                  </div>
+                )}
                 <LeagueIconDisplay
                   league={league}
                   size={40}
@@ -1001,6 +1034,11 @@ const Match = () => {
                     {userTeam && (
                       <span className="bg-blue-100 text-blue-800 px-1 rounded text-xs">
                         {userTeam}
+                      </span>
+                    )}
+                    {isCelebrating && (
+                      <span className="bg-yellow-500 text-yellow-900 px-1 rounded text-xs">
+                        🏆
                       </span>
                     )}
                   </div>
@@ -1019,7 +1057,6 @@ const Match = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
-          key={`matches-${currentLeague._id}-${activeTab}-${selectedRound}`}
         >
           <div className="flex flex-col gap-4 mb-6">
             <h2 className="text-xl font-bold text-slate-800">Matches</h2>
@@ -1036,6 +1073,11 @@ const Match = () => {
                 <div className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-sm flex items-center gap-2">
                   <UserCheck className="w-4 h-4" />
                   <span className="text-xs sm:text-sm">Your Team: {myTeamName}</span>
+                  {currentLeague.isCelebrating && currentLeague.winner?.teamName === myTeamName && (
+                    <span className="bg-yellow-500 text-yellow-900 px-2 py-0.5 rounded-full text-xs font-bold">
+                      🏆 CHAMPION
+                    </span>
+                  )}
                 </div>
               )}
               
@@ -1127,207 +1169,213 @@ const Match = () => {
               transition={{ duration: 0.3 }}
             >
               {filteredMatches.length > 0 ? (
-                filteredMatches.map((match, index) => (
-                  <motion.div
-                    key={match._id}
-                    className={`bg-gradient-to-r from-slate-50 to-slate-100 rounded-2xl p-3 border transition-all duration-300 group ${
-                      isUserTeam(match.homeTeam) || isUserTeam(match.awayTeam) 
-                        ? 'border-blue-200 bg-blue-50/50' 
-                        : 'border-slate-200 hover:border-slate-300'
-                    }`}
-                    whileHover={{ scale: 1.01, y: -1 }}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.05 }}
-                  >
-                    {/* Match Header - Mobile Compact */}
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        {match.matchNumber && (
-                          <div className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded-full text-xs font-semibold">
-                            #{match.matchNumber}
-                          </div>
-                        )}
-                        {match.roundNumber && (
-                          <div className="px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-medium">
-                            R{match.roundNumber}
-                          </div>
-                        )}
-                      </div>
-                      <div
-                        className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          match.played
-                            ? "bg-green-100 text-green-800"
-                            : "bg-blue-100 text-blue-800"
-                        }`}
-                      >
-                        {match.played ? "✅" : "⏰"}
-                      </div>
-                    </div>
-
-                    {/* Teams Row - Mobile Optimized */}
-                    <div className="flex items-center justify-between gap-2">
-                      {/* Home Team */}
-                      <div className="flex items-center gap-2 flex-1 min-w-0">
-                        <div className="relative flex-shrink-0">
-                          <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow-sm border">
-                            <img
-                              src={getTeamLogo(match.homeTeam, currentLeague)}
-                              alt={match.homeTeam}
-                              className="w-6 h-6 rounded object-cover"
-                            />
-                          </div>
-                          {isUserTeam(match.homeTeam) && (
-                            <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full border border-white"></div>
+                filteredMatches.map((match, index) => {
+                  const isUserHome = isUserTeam(match.homeTeam);
+                  const isUserAway = isUserTeam(match.awayTeam);
+                  const isUserMatch = isUserHome || isUserAway;
+                  
+                  return (
+                    <motion.div
+                      key={match._id || index}
+                      className={`bg-gradient-to-r from-slate-50 to-slate-100 rounded-2xl p-3 border transition-all duration-300 group ${
+                        isUserMatch 
+                          ? 'border-blue-200 bg-blue-50/50' 
+                          : 'border-slate-200 hover:border-slate-300'
+                      }`}
+                      whileHover={{ scale: 1.01, y: -1 }}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.05 }}
+                    >
+                      {/* Match Header - Mobile Compact */}
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          {match.matchNumber && (
+                            <div className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded-full text-xs font-semibold">
+                              #{match.matchNumber}
+                            </div>
+                          )}
+                          {match.roundNumber && (
+                            <div className="px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-medium">
+                              R{match.roundNumber}
+                            </div>
                           )}
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <p className={`font-semibold text-xs truncate ${
-                            isUserTeam(match.homeTeam) ? 'text-blue-700' : 'text-slate-800'
-                          }`}>
-                            {match.homeTeam}
-                          </p>
+                        <div
+                          className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            match.played
+                              ? "bg-green-100 text-green-800"
+                              : "bg-blue-100 text-blue-800"
+                          }`}
+                        >
+                          {match.played ? "✅" : "⏰"}
                         </div>
                       </div>
 
-                      {/* Score */}
-                      <div className="flex flex-col items-center mx-1">
-                        {match.played ? (
-                          editingMatch === match._id ? (
-                            <div className="flex items-center gap-1">
-                              <input
-                                type="number"
-                                min="0"
-                                value={tempScores.homeGoals}
-                                onChange={(e) => setTempScores(prev => ({
-                                  ...prev,
-                                  homeGoals: e.target.value
-                                }))}
-                                className="w-8 text-center border rounded p-1 text-xs font-bold"
-                                placeholder="0"
-                              />
-                              <span className="text-sm font-bold">-</span>
-                              <input
-                                type="number"
-                                min="0"
-                                value={tempScores.awayGoals}
-                                onChange={(e) => setTempScores(prev => ({
-                                  ...prev,
-                                  awayGoals: e.target.value
-                                }))}
-                                className="w-8 text-center border rounded p-1 text-xs font-bold"
-                                placeholder="0"
+                      {/* Teams Row - Mobile Optimized */}
+                      <div className="flex items-center justify-between gap-2">
+                        {/* Home Team */}
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <div className="relative flex-shrink-0">
+                            <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow-sm border">
+                              <img
+                                src={getTeamLogo(match.homeTeam, currentLeague)}
+                                alt={match.homeTeam}
+                                className="w-6 h-6 rounded object-cover"
                               />
                             </div>
-                          ) : (
-                            <span className="text-lg font-bold text-slate-800">
-                              {match.homeGoals}-{match.awayGoals}
-                            </span>
-                          )
-                        ) : (
-                          editingMatch === match._id ? (
-                            <div className="flex items-center gap-1">
-                              <input
-                                type="number"
-                                min="0"
-                                value={tempScores.homeGoals}
-                                onChange={(e) => setTempScores(prev => ({
-                                  ...prev,
-                                  homeGoals: e.target.value
-                                }))}
-                                className="w-8 text-center border rounded p-1 text-xs"
-                                placeholder="0"
-                              />
-                              <span className="text-xs font-bold">-</span>
-                              <input
-                                type="number"
-                                min="0"
-                                value={tempScores.awayGoals}
-                                onChange={(e) => setTempScores(prev => ({
-                                  ...prev,
-                                  awayGoals: e.target.value
-                                }))}
-                                className="w-8 text-center border rounded p-1 text-xs"
-                                placeholder="0"
-                              />
-                            </div>
-                          ) : (
-                            <span className="bg-green-500 text-white text-xs px-2 py-1 rounded font-semibold">
-                              VS
-                            </span>
-                          )
-                        )}
-                      </div>
-
-                      {/* Away Team */}
-                      <div className="flex items-center gap-2 flex-1 min-w-0 justify-end">
-                        <div className="min-w-0 flex-1 text-right">
-                          <p className={`font-semibold text-xs truncate ${
-                            isUserTeam(match.awayTeam) ? 'text-blue-700' : 'text-slate-800'
-                          }`}>
-                            {match.awayTeam}
-                          </p>
-                        </div>
-                        <div className="relative flex-shrink-0">
-                          <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow-sm border">
-                            <img
-                              src={getTeamLogo(match.awayTeam, currentLeague)}
-                              alt={match.awayTeam}
-                              className="w-6 h-6 rounded object-cover"
-                            />
-                          </div>
-                          {isUserTeam(match.awayTeam) && (
-                            <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full border border-white"></div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Match Footer - Mobile Compact */}
-                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-200">
-                      <div className="flex items-center gap-1">
-                        {(isUserTeam(match.homeTeam) || isUserTeam(match.awayTeam)) && (
-                          <div className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full text-xs">
-                            Your Team
-                          </div>
-                        )}
-                      </div>
-                      
-                      <div className="flex items-center gap-1">
-                        {editingMatch === match._id ? (
-                          <>
-                            <button
-                              onClick={cancelEditing}
-                              className="text-slate-400 hover:text-slate-600 transition-colors p-1"
-                              disabled={loading}
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                            <button
-                              onClick={() => saveMatchResult(match)}
-                              className="text-green-500 hover:text-green-700 transition-colors p-1"
-                              disabled={loading}
-                            >
-                              <Save className="w-3 h-3" />
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            {isAdmin && currentLeague.admin._id === user?._id && currentLeague.status === 'active' && (
-                              <button
-                                onClick={() => startEditingMatch(match)}
-                                className="text-slate-400 hover:text-slate-600 transition-colors p-1"
-                                title="Edit match result"
-                              >
-                                <Edit3 className="w-3 h-3" />
-                              </button>
+                            {isUserHome && (
+                              <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full border border-white"></div>
                             )}
-                          </>
-                        )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className={`font-semibold text-xs truncate ${
+                              isUserHome ? 'text-blue-700' : 'text-slate-800'
+                            }`}>
+                              {match.homeTeam}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Score */}
+                        <div className="flex flex-col items-center mx-1">
+                          {match.played ? (
+                            editingMatch === match._id ? (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={tempScores.homeGoals}
+                                  onChange={(e) => setTempScores(prev => ({
+                                    ...prev,
+                                    homeGoals: e.target.value
+                                  }))}
+                                  className="w-8 text-center border rounded p-1 text-xs font-bold"
+                                  placeholder="0"
+                                />
+                                <span className="text-sm font-bold">-</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={tempScores.awayGoals}
+                                  onChange={(e) => setTempScores(prev => ({
+                                    ...prev,
+                                    awayGoals: e.target.value
+                                  }))}
+                                  className="w-8 text-center border rounded p-1 text-xs font-bold"
+                                  placeholder="0"
+                                />
+                              </div>
+                            ) : (
+                              <span className="text-lg font-bold text-slate-800">
+                                {match.homeGoals}-{match.awayGoals}
+                              </span>
+                            )
+                          ) : (
+                            editingMatch === match._id ? (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={tempScores.homeGoals}
+                                  onChange={(e) => setTempScores(prev => ({
+                                    ...prev,
+                                    homeGoals: e.target.value
+                                  }))}
+                                  className="w-8 text-center border rounded p-1 text-xs"
+                                  placeholder="0"
+                                />
+                                <span className="text-xs font-bold">-</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={tempScores.awayGoals}
+                                  onChange={(e) => setTempScores(prev => ({
+                                    ...prev,
+                                    awayGoals: e.target.value
+                                  }))}
+                                  className="w-8 text-center border rounded p-1 text-xs"
+                                  placeholder="0"
+                                />
+                              </div>
+                            ) : (
+                              <span className="bg-green-500 text-white text-xs px-2 py-1 rounded font-semibold">
+                                VS
+                              </span>
+                            )
+                          )}
+                        </div>
+
+                        {/* Away Team */}
+                        <div className="flex items-center gap-2 flex-1 min-w-0 justify-end">
+                          <div className="min-w-0 flex-1 text-right">
+                            <p className={`font-semibold text-xs truncate ${
+                              isUserAway ? 'text-blue-700' : 'text-slate-800'
+                            }`}>
+                              {match.awayTeam}
+                            </p>
+                          </div>
+                          <div className="relative flex-shrink-0">
+                            <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow-sm border">
+                              <img
+                                src={getTeamLogo(match.awayTeam, currentLeague)}
+                                alt={match.awayTeam}
+                                className="w-6 h-6 rounded object-cover"
+                              />
+                            </div>
+                            {isUserAway && (
+                              <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full border border-white"></div>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </motion.div>
-                ))
+
+                      {/* Match Footer - Mobile Compact */}
+                      <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-200">
+                        <div className="flex items-center gap-1">
+                          {isUserMatch && (
+                            <div className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full text-xs">
+                              Your Team
+                            </div>
+                          )}
+                        </div>
+                        
+                        <div className="flex items-center gap-1">
+                          {editingMatch === match._id ? (
+                            <>
+                              <button
+                                onClick={cancelEditing}
+                                className="text-slate-400 hover:text-slate-600 transition-colors p-1"
+                                disabled={loading}
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                              <button
+                                onClick={() => saveMatchResult(match)}
+                                className="text-green-500 hover:text-green-700 transition-colors p-1"
+                                disabled={loading}
+                              >
+                                <Save className="w-3 h-3" />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              {isAdmin && currentLeague.admin._id === user?._id && currentLeague.status === 'active' && (
+                                <button
+                                  onClick={() => startEditingMatch(match)}
+                                  className="text-slate-400 hover:text-slate-600 transition-colors p-1"
+                                  title="Edit match result"
+                                >
+                                  <Edit3 className="w-3 h-3" />
+                                </button>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </motion.div>
+                  );
+                })
               ) : (
                 <motion.div 
                   className="text-center py-8"
@@ -1350,7 +1398,6 @@ const Match = () => {
         </motion.div>
       )}
 
-      {/* Rest of the modals remain the same... */}
       {/* JOIN MODAL */}
       <AnimatePresence>
         {showJoinModal && selectedLeague && (

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"; // Fixed import
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Eye, EyeOff } from "lucide-react";
@@ -14,7 +14,6 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // Fixed: useEffect is now properly imported
   useEffect(() => {
     localStorage.removeItem("token");
     localStorage.removeItem("role");
@@ -26,96 +25,97 @@ export default function Login() {
     setAlert({ msg, success });
   };
 
-const handleLogin = async (e) => {
-  e.preventDefault();
-  
-  // Basic validation
-  if (!username.trim() || !password.trim()) {
-    showAlert("❌ Please fill in all fields", false);
-    return;
-  }
-
-  setLoading(true);
-
-  try {
-    const startTime = Date.now();
+  const handleLogin = async (e) => {
+    e.preventDefault();
     
-    const res = await fetch(`${API_URL}/api/auth/login`, {
-      method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-        "X-Request-ID": Date.now().toString()
-      },
-      body: JSON.stringify({ 
-        username: username.trim(), 
-        password: password.trim() 
-      })
-      // Removed signal completely
-    });
-
-    const responseTime = Date.now() - startTime;
-    console.log(`Login API response time: ${responseTime}ms`);
-
-    // Check HTTP status first
-    if (!res.ok) {
-      const errorText = await res.text();
-      console.error('Server response not OK:', res.status, errorText);
-      throw new Error(`Server error: ${res.status}`);
-    }
-
-    const data = await res.json();
-
-    if (!data.success) {
-      showAlert("❌ " + (data.message || "Login failed"), false);
+    // Basic validation
+    if (!username.trim() || !password.trim()) {
+      showAlert("❌ Please fill in all fields", false);
       return;
     }
 
-    // ✅ Store user data immediately
-    localStorage.clear();
-    localStorage.setItem("token", data.data.token);
-    localStorage.setItem("role", data.data.role);
-    localStorage.setItem("username", data.data.username);
+    setLoading(true);
 
-    // ✅ Use the user data from login response directly
-    const userData = {
-      _id: data.data._id,
-      userCode: data.data.userCode,
-      username: data.data.username,
-      phoneNumber: data.data.phoneNumber,
-      role: data.data.role,
-      isAdmin: data.data.isAdmin,
-      settings: data.data.settings || {
-        profileImageUrl: "",
-        selectedLeague: { code: "", name: "" },
-        selectedTeam: { name: "", logoUrl: "" }
+    const controller = new AbortController();
+    let timeoutId;
+
+    try {
+      // Set timeout for the request
+      timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+
+      const startTime = Date.now();
+      
+      const res = await fetch(`${API_URL}/api/auth/login`, {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "X-Request-ID": Date.now().toString() // Add request ID for tracking
+        },
+        body: JSON.stringify({ 
+          username: username.trim(), 
+          password: password.trim() 
+        }),
+        signal: controller.signal
+      });
+
+      const responseTime = Date.now() - startTime;
+      console.log(`Login API response time: ${responseTime}ms`);
+
+      const data = await res.json();
+
+      if (!data.success) {
+        showAlert("❌ " + (data.message || "Login failed"), false);
+        setLoading(false);
+        return;
       }
-    };
-    
-    localStorage.setItem("user", JSON.stringify(userData));
 
-    showAlert("🎉 Login Successful!", true);
+      // ✅ Store user data immediately
+      localStorage.clear();
+      localStorage.setItem("token", data.data.token);
+      localStorage.setItem("role", data.data.role);
+      localStorage.setItem("username", data.data.username);
 
-    // ✅ Navigate immediately
-    const route = data.data.role === "admin" ? "/admin" : "/dashboard";
-    
-    setTimeout(() => {
-      navigate(route, { replace: true });
-    }, 500);
+      // ✅ Use the user data from login response directly (no second API call)
+      const userData = {
+        _id: data.data._id,
+        userCode: data.data.userCode,
+        username: data.data.username,
+        phoneNumber: data.data.phoneNumber,
+        role: data.data.role,
+        isAdmin: data.data.isAdmin,
+        settings: data.data.settings || {
+          profileImageUrl: "",
+          selectedLeague: { code: "", name: "" },
+          selectedTeam: { name: "", logoUrl: "" }
+        }
+      };
+      
+      localStorage.setItem("user", JSON.stringify(userData));
 
-  } catch (error) {
-    console.error("Login error:", error);
-    
-    if (error.name === 'TypeError' && error.message.includes('fetch')) {
-      showAlert("❌ Network error - please check your connection", false);
-    } else if (error.message.includes('Server error')) {
-      showAlert("❌ Server is temporarily unavailable", false);
-    } else {
-      showAlert("❌ Login failed - please try again", false);
+      showAlert("🎉 Login Successful!", true);
+
+      // ✅ Navigate immediately without waiting for profile fetch
+      const route = data.data.role === "admin" ? "/admin" : "/dashboard";
+      
+      // Small delay to show success message
+      setTimeout(() => {
+        navigate(route, { replace: true });
+      }, 500);
+
+    } catch (error) {
+      console.error("Login error:", error);
+      if (error.name === 'AbortError') {
+        showAlert("❌ Request timeout - server is taking too long", false);
+      } else {
+        showAlert("❌ Server error - please try again", false);
+      }
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      setLoading(false);
     }
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   const closeAlert = () => setAlert(null);
 

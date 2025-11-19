@@ -22,7 +22,9 @@ import {
   Eye,
   EyeOff,
   Share2,
-  QrCode
+  QrCode,
+  Award,
+  Star
 } from "lucide-react";
 import PageLayout from "../components/PageLayout";
 import {
@@ -31,6 +33,8 @@ import {
   extractLeagueIconId,
   LeagueIconDisplay
 } from "../utils/leagueIcons";
+import { useCelebration } from "../contexts/CelebrationContext";
+import CelebrationModal from "../components/CelebrationModal";
 
 const API_URL = import.meta.env.VITE_API_URL;
 
@@ -56,7 +60,16 @@ export default function CreateLeague() {
   const [tempHomeGoals, setTempHomeGoals] = useState("");
   const [tempAwayGoals, setTempAwayGoals] = useState("");
   const [savingResult, setSavingResult] = useState(false);
-  const [participantDetails, setParticipantDetails] = useState({}); // Store participant details with logos
+  const [participantDetails, setParticipantDetails] = useState({});
+  const [celebratingWinners, setCelebratingWinners] = useState([]);
+
+  // Celebration context
+  const { 
+    showCelebration, 
+    currentCelebration, 
+    dismissCelebration,
+    dismissAllCelebrations 
+  } = useCelebration();
 
   // Function to get team logo - enhanced to use actual participant logos
   const getTeamLogo = (teamName, league) => {
@@ -133,6 +146,27 @@ export default function CreateLeague() {
     }
   }, [location.state]);
 
+  // Fetch celebrating winners
+  const fetchCelebratingWinners = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_URL}/api/leagues/winners/celebrating`, {
+        headers: {
+          'Authorization': token ? `Bearer ${token}` : ''
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setCelebratingWinners(data.data);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching celebrating winners:', error);
+    }
+  }, []);
+
   // Enhanced fetch leagues to include participant details
   const fetchLeagues = useCallback(async ({ silent = false } = {}) => {
     const token = localStorage.getItem('token');
@@ -172,11 +206,13 @@ export default function CreateLeague() {
   useEffect(() => {
     if (activeTab !== "list" && activeTab !== "matches") return;
     fetchLeagues();
+    fetchCelebratingWinners();
     const intervalId = setInterval(() => {
       fetchLeagues({ silent: true });
+      fetchCelebratingWinners();
     }, 1000);
     return () => clearInterval(intervalId);
-  }, [activeTab, fetchLeagues]);
+  }, [activeTab, fetchLeagues, fetchCelebratingWinners]);
 
   // Create league
   const handleSubmit = async (e) => {
@@ -506,12 +542,27 @@ export default function CreateLeague() {
     );
   };
 
+  // Calculate days left for celebration
+  const getDaysLeft = (celebrationEnds) => {
+    const endDate = new Date(celebrationEnds);
+    const now = new Date();
+    const diffTime = endDate - now;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays > 0 ? diffDays : 0;
+  };
+
   return (
     <PageLayout
       pageTitle="🏆 League Management"
       pageDescription="Create and manage football leagues. Generate join codes and start leagues when players have joined."
       pageColor="from-yellow-400 to-orange-500"
     >
+      {/* Celebration Modal */}
+      <CelebrationModal
+        celebration={currentCelebration}
+        onDismiss={() => dismissCelebration(currentCelebration?._id, currentCelebration?.winner.teamName)}
+      />
+
       {/* Alerts */}
       <AnimatePresence>
         {alert && (
@@ -528,6 +579,84 @@ export default function CreateLeague() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Current Champions Section */}
+      {celebratingWinners.length > 0 && activeTab !== "create" && (
+        <motion.div
+          className="bg-gradient-to-r from-yellow-400 to-orange-500 rounded-3xl p-4 shadow-2xl text-white mb-6"
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
+        >
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-bold flex items-center gap-2">
+              <Crown className="w-5 h-5" />
+              🏆 Current Champions
+            </h3>
+            <button
+              onClick={dismissAllCelebrations}
+              className="text-white/80 hover:text-white text-sm bg-white/20 px-3 py-1 rounded-full transition-colors"
+            >
+              Dismiss All
+            </button>
+          </div>
+          
+          <div className="space-y-3">
+            {celebratingWinners.map((league) => {
+              const daysLeft = getDaysLeft(league.celebrationEnds);
+              
+              return (
+                <motion.div
+                  key={league._id}
+                  className="bg-white/20 rounded-2xl p-3 backdrop-blur-sm border border-white/30"
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.2 }}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="relative">
+                        <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+                          {league.winner.teamLogo ? (
+                            <img 
+                              src={league.winner.teamLogo} 
+                              alt={league.winner.teamName}
+                              className="w-8 h-8 rounded-lg object-cover"
+                              onError={(e) => {
+                                e.target.src = `https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(league.winner.teamName)}&backgroundColor=yellow,orange,red&size=80`;
+                              }}
+                            />
+                          ) : (
+                            <Trophy className="w-6 h-6 text-yellow-200" />
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-white text-sm">
+                          {league.winner.teamName}
+                        </h4>
+                        <p className="text-white/80 text-xs">{league.name}</p>
+                        <p className="text-yellow-200 text-xs font-medium flex items-center gap-1">
+                          <Crown className="w-3 h-3" />
+                          TAAJ CROWN PRINCE • {daysLeft} day{daysLeft !== 1 ? 's' : ''} left
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="bg-yellow-500 text-yellow-900 px-3 py-1 rounded-full text-xs font-bold">
+                        CHAMPION
+                      </div>
+                      <p className="text-white/70 text-xs mt-1">
+                        Since {new Date(league.winner.awardedAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+        </motion.div>
+      )}
 
       {/* Admin Badge */}
       <div className="flex justify-center mb-6">
@@ -546,7 +675,10 @@ export default function CreateLeague() {
             whileTap={{ scale: 0.98 }}
             onClick={() => {
               setActiveTab(tab);
-              if (tab === "list" || tab === "matches") fetchLeagues();
+              if (tab === "list" || tab === "matches") {
+                fetchLeagues();
+                fetchCelebratingWinners();
+              }
             }}
             className={`px-6 py-2 rounded-full font-semibold shadow-lg transition-all ${
               activeTab === tab
@@ -559,7 +691,7 @@ export default function CreateLeague() {
         ))}
       </div>
 
-      {/* CREATE tab - unchanged */}
+      {/* CREATE tab */}
       {activeTab === "create" && (
         <motion.div
           initial={{ opacity: 0, y: 30 }}
@@ -753,216 +885,264 @@ export default function CreateLeague() {
               )}
 
               <div className="space-y-4">
-                {filteredLeagues.map((league) => (
-                  <motion.div
-                    key={league._id}
-                    whileHover={{ scale: 1.01 }}
-                    className="bg-white/90 backdrop-blur-md rounded-2xl shadow-lg border p-4 md:p-5"
-                  >
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center gap-4">
-                        <LeagueIconDisplay
-                          league={league}
-                          size={56}
-                          className="shadow-md border-slate-200 bg-white"
-                        />
-                        <div>
-                          <div className="flex items-center gap-2 mb-1">
-                            <h3 className="font-bold text-lg">{league.name}</h3>
-                            {getStatusBadge(league.status)}
+                {filteredLeagues.map((league) => {
+                  const isCelebrating = league.isCelebrating && league.winner?.teamName;
+                  return (
+                    <motion.div
+                      key={league._id}
+                      whileHover={{ scale: 1.01 }}
+                      className="bg-white/90 backdrop-blur-md rounded-2xl shadow-lg border p-4 md:p-5"
+                    >
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-4">
+                          <div className="relative">
+                            <LeagueIconDisplay
+                              league={league}
+                              size={56}
+                              className="shadow-md border-slate-200 bg-white"
+                            />
+                            {isCelebrating && (
+                              <div className="absolute -top-2 -right-2 w-6 h-6 bg-yellow-500 rounded-full border-2 border-white flex items-center justify-center">
+                                <Crown className="w-3 h-3 text-white" />
+                              </div>
+                            )}
                           </div>
-                          <p className="text-sm text-gray-500">{league.description}</p>
-                          <p className="text-xs text-gray-400 mt-1">
-                            {new Date(league.startDate).toLocaleDateString()} —{" "}
-                            {new Date(league.endDate).toLocaleDateString()}
-                          </p>
+                          <div>
+                            <div className="flex items-center gap-2 mb-1">
+                              <h3 className="font-bold text-lg">{league.name}</h3>
+                              {getStatusBadge(league.status)}
+                              {isCelebrating && (
+                                <span className="bg-yellow-500 text-yellow-900 text-xs px-2 py-1 rounded-full font-bold">
+                                  🏆 CHAMPION
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm text-gray-500">{league.description}</p>
+                            <p className="text-xs text-gray-400 mt-1">
+                              {new Date(league.startDate).toLocaleDateString()} —{" "}
+                              {new Date(league.endDate).toLocaleDateString()}
+                            </p>
+                            {isCelebrating && (
+                              <p className="text-xs text-yellow-600 font-medium mt-1">
+                                🎉 {league.winner.teamName} is celebrating their victory!
+                              </p>
+                            )}
+                          </div>
                         </div>
-                      </div>
 
-                      <div className="flex items-center gap-2">
-                        {/* Join Code Display */}
-                        <div className="relative">
-                          <button
-                            onClick={() => setShowJoinCode(showJoinCode === league._id ? null : league._id)}
-                            className="px-3 py-2 rounded-lg bg-blue-500 text-white font-semibold hover:bg-blue-600 flex items-center gap-2"
-                          >
-                            <QrCode className="w-4 h-4" />
-                            {showJoinCode === league._id ? league.joinCode : 'Show Code'}
-                          </button>
-                          
-                          {showJoinCode === league._id && (
-                            <div className="absolute top-full right-0 mt-2 bg-white rounded-lg shadow-lg border p-3 z-10">
-                              <div className="flex items-center gap-2 mb-2">
-                                <span className="font-mono text-lg font-bold">{league.joinCode}</span>
+                        <div className="flex items-center gap-2">
+                          {/* Join Code Display */}
+                          <div className="relative">
+                            <button
+                              onClick={() => setShowJoinCode(showJoinCode === league._id ? null : league._id)}
+                              className="px-3 py-2 rounded-lg bg-blue-500 text-white font-semibold hover:bg-blue-600 flex items-center gap-2"
+                            >
+                              <QrCode className="w-4 h-4" />
+                              {showJoinCode === league._id ? league.joinCode : 'Show Code'}
+                            </button>
+                            
+                            {showJoinCode === league._id && (
+                              <div className="absolute top-full right-0 mt-2 bg-white rounded-lg shadow-lg border p-3 z-10">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <span className="font-mono text-lg font-bold">{league.joinCode}</span>
+                                  <button
+                                    onClick={() => copyJoinCode(league.joinCode)}
+                                    className="text-blue-500 hover:text-blue-700"
+                                  >
+                                    <Copy className="w-4 h-4" />
+                                  </button>
+                                </div>
                                 <button
-                                  onClick={() => copyJoinCode(league.joinCode)}
-                                  className="text-blue-500 hover:text-blue-700"
+                                  onClick={() => shareLeague(league)}
+                                  className="w-full px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600 flex items-center justify-center gap-1"
                                 >
-                                  <Copy className="w-4 h-4" />
+                                  <Share2 className="w-3 h-3" />
+                                  Share
                                 </button>
                               </div>
+                            )}
+                          </div>
+
+                          <button
+                            onClick={() => openMatchesForLeague(league)}
+                            className="px-3 py-2 rounded-lg bg-indigo-500 text-white font-semibold hover:bg-indigo-600 flex items-center gap-2"
+                            title="Open Matches view"
+                          >
+                            <Play className="w-4 h-4" /> Matches
+                          </button>
+                          <button
+                            onClick={() => setExpandedLeagueId(expandedLeagueId === league._id ? null : league._id)}
+                            className="px-3 py-2 rounded-lg bg-emerald-500 text-white font-semibold hover:bg-emerald-600 flex items-center gap-2"
+                            title="Toggle Standings"
+                          >
+                            <CheckSquare className="w-4 h-4" /> Standings
+                          </button>
+
+                          <button
+                            onClick={() => handleEditLeague(league)}
+                            className="px-3 py-2 rounded-lg bg-blue-500 text-white font-semibold hover:bg-blue-600 flex items-center gap-2"
+                          >
+                            <Edit3 className="w-4 h-4" /> Edit
+                          </button>
+
+                          <button
+                            onClick={() => handleDeleteLeague(league._id)}
+                            className="px-3 py-2 rounded-lg bg-red-500 text-white font-semibold hover:bg-red-600 flex items-center gap-2"
+                          >
+                            <Trash2 className="w-4 h-4" /> Delete
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Participants and Actions */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <h4 className="font-semibold text-sm text-gray-700 mb-2">
+                            Participants ({league.participants?.length || 0}/{league.maxParticipants})
+                          </h4>
+                          <div className="flex flex-wrap gap-2">
+                            {league.participants?.length > 0 ? (
+                              league.participants.map((participant) => 
+                                renderParticipantWithLogo(participant, league)
+                              )
+                            ) : (
+                              <p className="text-sm text-gray-500">No participants yet. Share the join code to get players!</p>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Generate Matches Button */}
+                        {canGenerateMatches(league) && (
+                          <div className="ml-4">
+                            <div className="flex items-center gap-2">
                               <button
-                                onClick={() => shareLeague(league)}
-                                className="w-full px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600 flex items-center justify-center gap-1"
+                                onClick={() => shuffleParticipants(league)}
+                                disabled={loading}
+                                className="px-4 py-2 bg-purple-500 text-white rounded-lg font-semibold hover:bg-purple-600 flex items-center gap-2 disabled:opacity-50"
                               >
-                                <Share2 className="w-3 h-3" />
-                                Share
+                                <Shuffle className="w-4 h-4" />
+                                Shuffle Teams
                               </button>
                             </div>
-                          )}
-                        </div>
-
-                        <button
-                          onClick={() => openMatchesForLeague(league)}
-                          className="px-3 py-2 rounded-lg bg-indigo-500 text-white font-semibold hover:bg-indigo-600 flex items-center gap-2"
-                          title="Open Matches view"
-                        >
-                          <Play className="w-4 h-4" /> Matches
-                        </button>
-                        <button
-                          onClick={() => setExpandedLeagueId(expandedLeagueId === league._id ? null : league._id)}
-                          className="px-3 py-2 rounded-lg bg-emerald-500 text-white font-semibold hover:bg-emerald-600 flex items-center gap-2"
-                          title="Toggle Standings"
-                        >
-                          <CheckSquare className="w-4 h-4" /> Standings
-                        </button>
-
-                        <button
-                          onClick={() => handleEditLeague(league)}
-                          className="px-3 py-2 rounded-lg bg-blue-500 text-white font-semibold hover:bg-blue-600 flex items-center gap-2"
-                        >
-                          <Edit3 className="w-4 h-4" /> Edit
-                        </button>
-
-                        <button
-                          onClick={() => handleDeleteLeague(league._id)}
-                          className="px-3 py-2 rounded-lg bg-red-500 text-white font-semibold hover:bg-red-600 flex items-center gap-2"
-                        >
-                          <Trash2 className="w-4 h-4" /> Delete
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Participants and Actions */}
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <h4 className="font-semibold text-sm text-gray-700 mb-2">
-                          Participants ({league.participants?.length || 0}/{league.maxParticipants})
-                        </h4>
-                        <div className="flex flex-wrap gap-2">
-                          {league.participants?.length > 0 ? (
-                            league.participants.map((participant) => 
-                              renderParticipantWithLogo(participant, league)
-                            )
-                          ) : (
-                            <p className="text-sm text-gray-500">No participants yet. Share the join code to get players!</p>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Generate Matches Button */}
-                      {canGenerateMatches(league) && (
-                        <div className="ml-4">
-                          <div className="flex items-center gap-2">
+                            <div className="h-2" />
                             <button
-                              onClick={() => shuffleParticipants(league)}
+                              onClick={() => generateMatches(league._id)}
                               disabled={loading}
-                              className="px-4 py-2 bg-purple-500 text-white rounded-lg font-semibold hover:bg-purple-600 flex items-center gap-2 disabled:opacity-50"
+                              className="px-4 py-2 bg-emerald-500 text-white rounded-lg font-semibold hover:bg-emerald-600 flex items-center gap-2 disabled:opacity-50"
                             >
-                              <Shuffle className="w-4 h-4" />
-                              Shuffle Teams
+                              <CheckSquare className="w-4 h-4" />
+                              {loading ? 'Starting...' : 'Start League'}
+                            </button>
+                            <p className="text-xs text-gray-500 mt-1 text-center">
+                              Ready to start!
+                            </p>
+                          </div>
+                        )}
+
+                        {league.status === 'draft' && league.participants?.length < 2 && (
+                          <div className="ml-4">
+                            <button
+                              disabled
+                              className="px-4 py-2 bg-gray-300 text-gray-500 rounded-lg font-semibold flex items-center gap-2"
+                            >
+                              <Clock className="w-4 h-4" />
+                              Need {2 - (league.participants?.length || 0)} more
                             </button>
                           </div>
-                          <div className="h-2" />
-                          <button
-                            onClick={() => generateMatches(league._id)}
-                            disabled={loading}
-                            className="px-4 py-2 bg-emerald-500 text-white rounded-lg font-semibold hover:bg-emerald-600 flex items-center gap-2 disabled:opacity-50"
-                          >
-                            <CheckSquare className="w-4 h-4" />
-                            {loading ? 'Starting...' : 'Start League'}
-                          </button>
-                          <p className="text-xs text-gray-500 mt-1 text-center">
-                            Ready to start!
-                          </p>
-                        </div>
-                      )}
-
-                      {league.status === 'draft' && league.participants?.length < 2 && (
-                        <div className="ml-4">
-                          <button
-                            disabled
-                            className="px-4 py-2 bg-gray-300 text-gray-500 rounded-lg font-semibold flex items-center gap-2"
-                          >
-                            <Clock className="w-4 h-4" />
-                            Need {2 - (league.participants?.length || 0)} more
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Standings */}
-                    {expandedLeagueId === league._id && (
-                      <div className="mt-4 w-full">
-                        <div className="overflow-x-auto rounded-lg border">
-                          {getStandingsData(league).length > 0 ? (
-                            <table className="w-full text-sm md:text-base">
-                              <thead className="bg-gradient-to-r from-yellow-400 to-orange-400 text-white">
-                                <tr>
-                                  <th className="px-3 py-2">#</th>
-                                  <th className="px-3 py-2 text-left">Team</th>
-                                  <th className="px-3 py-2">P</th>
-                                  <th className="px-3 py-2">W</th>
-                                  <th className="px-3 py-2">D</th>
-                                  <th className="px-3 py-2">L</th>
-                                  <th className="px-3 py-2">GF</th>
-                                  <th className="px-3 py-2">GA</th>
-                                  <th className="px-3 py-2">GD</th>
-                                  <th className="px-3 py-2">PTS</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {getStandingsData(league)
-                                  .slice()
-                                  .sort((a, b) => b.points - a.points || b.goalDifference - a.goalDifference || b.goalsFor - a.goalsFor)
-                                  .map((team, idx) => (
-                                    <tr key={idx} className="text-center border-b hover:bg-yellow-50">
-                                      <td className="px-2 py-2">{idx + 1}</td>
-                                      <td className="flex items-center gap-3 text-left px-3 py-2">
-                                        <img 
-                                          src={team.logo} 
-                                          alt={team.name} 
-                                          className="w-8 h-8 rounded-full object-cover"
-                                          onError={(e) => {
-                                            e.target.src = `https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(team.name)}&backgroundColor=blue,green&size=80`;
-                                          }}
-                                        />
-                                        <span className="font-semibold">{team.name}</span>
-                                      </td>
-                                      <td>{team.played}</td>
-                                      <td className="text-green-600 font-medium">{team.won}</td>
-                                      <td className="text-yellow-600 font-medium">{team.drawn}</td>
-                                      <td className="text-red-600 font-medium">{team.lost}</td>
-                                      <td>{team.goalsFor}</td>
-                                      <td>{team.goalsAgainst}</td>
-                                      <td className={team.goalDifference > 0 ? 'text-green-600' : team.goalDifference < 0 ? 'text-red-600' : ''}>
-                                        {team.goalDifference > 0 ? '+' : ''}{team.goalDifference}
-                                      </td>
-                                      <td className="font-bold">{team.points}</td>
-                                    </tr>
-                                  ))}
-                              </tbody>
-                            </table>
-                          ) : (
-                            <div className="py-6 text-center text-sm text-gray-500">
-                              No teams available yet. Add participants to view standings.
-                            </div>
-                          )}
-                        </div>
+                        )}
                       </div>
-                    )}
-                  </motion.div>
-                ))}
+
+                      {/* Standings */}
+                      {expandedLeagueId === league._id && (
+                        <div className="mt-4 w-full">
+                          <div className="overflow-x-auto rounded-lg border">
+                            {getStandingsData(league).length > 0 ? (
+                              <table className="w-full text-sm md:text-base">
+                                <thead className="bg-gradient-to-r from-yellow-400 to-orange-400 text-white">
+                                  <tr>
+                                    <th className="px-3 py-2">#</th>
+                                    <th className="px-3 py-2 text-left">Team</th>
+                                    <th className="px-3 py-2">P</th>
+                                    <th className="px-3 py-2">W</th>
+                                    <th className="px-3 py-2">D</th>
+                                    <th className="px-3 py-2">L</th>
+                                    <th className="px-3 py-2">GF</th>
+                                    <th className="px-3 py-2">GA</th>
+                                    <th className="px-3 py-2">GD</th>
+                                    <th className="px-3 py-2">PTS</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {getStandingsData(league)
+                                    .slice()
+                                    .sort((a, b) => b.points - a.points || b.goalDifference - a.goalDifference || b.goalsFor - a.goalsFor)
+                                    .map((team, idx) => {
+                                      const isChampion = league.winner?.teamName === team.name;
+                                      return (
+                                        <tr key={idx} className={`text-center border-b hover:bg-yellow-50 ${isChampion ? 'bg-gradient-to-r from-yellow-50 to-orange-50' : ''}`}>
+                                          <td className="px-2 py-2">
+                                            <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                                              isChampion
+                                                ? 'bg-yellow-500 text-white'
+                                                : idx === 0
+                                                ? 'bg-yellow-100 text-yellow-800'
+                                                : idx === 1
+                                                ? 'bg-slate-200 text-slate-800'
+                                                : idx === 2
+                                                ? 'bg-orange-100 text-orange-800'
+                                                : idx <= 4
+                                                ? 'bg-blue-100 text-blue-800'
+                                                : 'bg-slate-100 text-slate-600'
+                                            }`}>
+                                              {isChampion ? <Crown className="w-3 h-3" /> : idx + 1}
+                                            </div>
+                                          </td>
+                                          <td className="flex items-center gap-3 text-left px-3 py-2">
+                                            <img 
+                                              src={team.logo} 
+                                              alt={team.name} 
+                                              className="w-8 h-8 rounded-full object-cover"
+                                              onError={(e) => {
+                                                e.target.src = `https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(team.name)}&backgroundColor=blue,green&size=80`;
+                                              }}
+                                            />
+                                            <span className={`font-semibold ${isChampion ? 'text-yellow-700' : ''}`}>
+                                              {team.name}
+                                              {isChampion && (
+                                                <span className="ml-2 bg-yellow-500 text-white text-xs px-1.5 py-0.5 rounded-full">
+                                                  🏆 CHAMP
+                                                </span>
+                                              )}
+                                            </span>
+                                          </td>
+                                          <td>{team.played}</td>
+                                          <td className="text-green-600 font-medium">{team.won}</td>
+                                          <td className="text-yellow-600 font-medium">{team.drawn}</td>
+                                          <td className="text-red-600 font-medium">{team.lost}</td>
+                                          <td>{team.goalsFor}</td>
+                                          <td>{team.goalsAgainst}</td>
+                                          <td className={team.goalDifference > 0 ? 'text-green-600' : team.goalDifference < 0 ? 'text-red-600' : ''}>
+                                            {team.goalDifference > 0 ? '+' : ''}{team.goalDifference}
+                                          </td>
+                                          <td className={`font-bold ${isChampion ? 'bg-yellow-500 text-white px-2 py-1 rounded-full' : 'bg-slate-800 text-white px-2 py-1 rounded-full'}`}>
+                                            {team.points}
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                </tbody>
+                              </table>
+                            ) : (
+                              <div className="py-6 text-center text-sm text-gray-500">
+                                No teams available yet. Add participants to view standings.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </motion.div>
+                  );
+                })}
               </div>
             </div>
 
@@ -1012,6 +1192,12 @@ export default function CreateLeague() {
                       {leagues.reduce((acc, l) => acc + (l.participants?.length || 0), 0)}
                     </span>
                   </div>
+                  <div className="flex justify-between items-center">
+                    <span>Celebrating Champions</span>
+                    <span className="font-semibold text-yellow-600">
+                      {celebratingWinners.length}
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -1023,6 +1209,7 @@ export default function CreateLeague() {
                   <p>• Start league when you have at least 2 participants</p>
                   <p>• Matches are auto-generated between all teams</p>
                   <p>• Update match results to auto-update standings</p>
+                  <p>• Champions get 3-day celebration across platform</p>
                 </div>
               </div>
             </div>
@@ -1062,29 +1249,42 @@ export default function CreateLeague() {
                   Select a league to view or generate its matches.
                 </p>
                 <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
-                  {leagues.map((league) => (
-                    <button
-                      key={league._id}
-                      onClick={() => setSelectedLeagueForMatches(league)}
-                      className={`w-full text-left px-4 py-3 rounded-xl border transition-all ${
-                        selectedLeagueForMatches?._id === league._id
-                          ? "bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-lg border-transparent"
-                          : "bg-slate-50 text-slate-700 hover:bg-slate-100 border-slate-200"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold truncate">{league.name}</span>
-                        <span className="text-xs">{league.participants?.length || 0} teams</span>
-                      </div>
-                      <div className="text-xs mt-1 flex items-center gap-2">
-                        {getStatusBadge(league.status)}
-                        <span className="text-slate-400">
-                          {new Date(league.startDate).toLocaleDateString()} -{" "}
-                          {new Date(league.endDate).toLocaleDateString()}
-                        </span>
-                      </div>
-                    </button>
-                  ))}
+                  {leagues.map((league) => {
+                    const isCelebrating = league.isCelebrating && league.winner?.teamName;
+                    return (
+                      <button
+                        key={league._id}
+                        onClick={() => setSelectedLeagueForMatches(league)}
+                        className={`w-full text-left px-4 py-3 rounded-xl border transition-all relative ${
+                          selectedLeagueForMatches?._id === league._id
+                            ? "bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-lg border-transparent"
+                            : "bg-slate-50 text-slate-700 hover:bg-slate-100 border-slate-200"
+                        }`}
+                      >
+                        {isCelebrating && (
+                          <div className="absolute -top-1 -right-1 w-4 h-4 bg-yellow-500 rounded-full border-2 border-white flex items-center justify-center">
+                            <Crown className="w-2 h-2 text-white" />
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold truncate">{league.name}</span>
+                          <span className="text-xs">{league.participants?.length || 0} teams</span>
+                        </div>
+                        <div className="text-xs mt-1 flex items-center gap-2">
+                          {getStatusBadge(league.status)}
+                          {isCelebrating && (
+                            <span className="bg-yellow-500 text-yellow-900 text-xs px-1.5 py-0.5 rounded-full">
+                              🏆
+                            </span>
+                          )}
+                          <span className="text-slate-400">
+                            {new Date(league.startDate).toLocaleDateString()} -{" "}
+                            {new Date(league.endDate).toLocaleDateString()}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -1094,12 +1294,19 @@ export default function CreateLeague() {
                     <div className="bg-white/90 rounded-2xl shadow-lg border p-5">
                       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                         <div className="flex items-center gap-4">
-                          <LeagueIconDisplay
-                            league={selectedLeagueForMatches}
-                            size={64}
-                            className="border-slate-200 bg-white"
-                            rounded={false}
-                          />
+                          <div className="relative">
+                            <LeagueIconDisplay
+                              league={selectedLeagueForMatches}
+                              size={64}
+                              className="border-slate-200 bg-white"
+                              rounded={false}
+                            />
+                            {selectedLeagueForMatches.isCelebrating && (
+                              <div className="absolute -top-2 -right-2 w-6 h-6 bg-yellow-500 rounded-full border-2 border-white flex items-center justify-center">
+                                <Crown className="w-3 h-3 text-white" />
+                              </div>
+                            )}
+                          </div>
                           <div>
                             <h3 className="text-xl font-bold text-slate-800">
                               {selectedLeagueForMatches.name}
@@ -1111,6 +1318,11 @@ export default function CreateLeague() {
                               {new Date(selectedLeagueForMatches.startDate).toLocaleDateString()} -{" "}
                               {new Date(selectedLeagueForMatches.endDate).toLocaleDateString()}
                             </div>
+                            {selectedLeagueForMatches.isCelebrating && (
+                              <div className="mt-2 bg-gradient-to-r from-yellow-100 to-orange-100 rounded-full px-3 py-1 text-xs font-medium text-yellow-800 border border-yellow-200">
+                                🏆 {selectedLeagueForMatches.winner?.teamName} is the current champion!
+                              </div>
+                            )}
                           </div>
                         </div>
 
