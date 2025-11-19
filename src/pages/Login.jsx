@@ -25,97 +25,113 @@ export default function Login() {
     setAlert({ msg, success });
   };
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
+const handleLogin = async (e) => {
+  e.preventDefault();
+  
+  // Basic validation
+  if (!username.trim() || !password.trim()) {
+    showAlert("❌ Please fill in all fields", false);
+    return;
+  }
+
+  setLoading(true);
+
+  const controller = new AbortController();
+  let timeoutId;
+
+  try {
+    // Set timeout for the request
+    timeoutId = setTimeout(() => controller.abort(), 15000); // 15 seconds
+
+    const startTime = Date.now();
     
-    // Basic validation
-    if (!username.trim() || !password.trim()) {
-      showAlert("❌ Please fill in all fields", false);
+    const res = await fetch(`${API_URL}/api/auth/login`, {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        "X-Request-ID": Date.now().toString()
+      },
+      body: JSON.stringify({ 
+        username: username.trim(), 
+        password: password.trim() 
+      }),
+      signal: controller.signal,
+      mode: 'cors', // ADD THIS LINE
+      credentials: 'include' // ADD THIS LINE TOO
+    });
+
+    const responseTime = Date.now() - startTime;
+    console.log(`Login API response time: ${responseTime}ms`);
+
+    // Check if response is OK
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error('Server error response:', errorText);
+      throw new Error(`HTTP error! status: ${res.status}`);
+    }
+
+    const data = await res.json();
+    console.log('Login response data:', data); // Add this to see the response
+
+    if (!data.success) {
+      showAlert("❌ " + (data.message || "Login failed"), false);
+      setLoading(false);
       return;
     }
 
-    setLoading(true);
+    // ✅ Store user data immediately
+    localStorage.clear();
+    localStorage.setItem("token", data.data.token);
+    localStorage.setItem("role", data.data.role);
+    localStorage.setItem("username", data.data.username);
 
-    const controller = new AbortController();
-    let timeoutId;
-
-    try {
-      // Set timeout for the request
-      timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
-
-      const startTime = Date.now();
-      
-      const res = await fetch(`${API_URL}/api/auth/login`, {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "X-Request-ID": Date.now().toString() // Add request ID for tracking
-        },
-        body: JSON.stringify({ 
-          username: username.trim(), 
-          password: password.trim() 
-        }),
-        signal: controller.signal
-      });
-
-      const responseTime = Date.now() - startTime;
-      console.log(`Login API response time: ${responseTime}ms`);
-
-      const data = await res.json();
-
-      if (!data.success) {
-        showAlert("❌ " + (data.message || "Login failed"), false);
-        setLoading(false);
-        return;
+    // ✅ Use the user data from login response directly
+    const userData = {
+      _id: data.data._id,
+      userCode: data.data.userCode,
+      username: data.data.username,
+      phoneNumber: data.data.phoneNumber,
+      role: data.data.role,
+      isAdmin: data.data.isAdmin,
+      settings: data.data.settings || {
+        profileImageUrl: "",
+        selectedLeague: { code: "", name: "" },
+        selectedTeam: { name: "", logoUrl: "" }
       }
+    };
+    
+    localStorage.setItem("user", JSON.stringify(userData));
 
-      // ✅ Store user data immediately
-      localStorage.clear();
-      localStorage.setItem("token", data.data.token);
-      localStorage.setItem("role", data.data.role);
-      localStorage.setItem("username", data.data.username);
+    console.log('User data stored:', userData); // Add this log
 
-      // ✅ Use the user data from login response directly (no second API call)
-      const userData = {
-        _id: data.data._id,
-        userCode: data.data.userCode,
-        username: data.data.username,
-        phoneNumber: data.data.phoneNumber,
-        role: data.data.role,
-        isAdmin: data.data.isAdmin,
-        settings: data.data.settings || {
-          profileImageUrl: "",
-          selectedLeague: { code: "", name: "" },
-          selectedTeam: { name: "", logoUrl: "" }
-        }
-      };
-      
-      localStorage.setItem("user", JSON.stringify(userData));
+    showAlert("🎉 Login Successful!", true);
 
-      showAlert("🎉 Login Successful!", true);
+    // ✅ Navigate immediately
+    const route = data.data.role === "admin" ? "/admin" : "/dashboard";
+    
+    setTimeout(() => {
+      navigate(route, { replace: true });
+    }, 500);
 
-      // ✅ Navigate immediately without waiting for profile fetch
-      const route = data.data.role === "admin" ? "/admin" : "/dashboard";
-      
-      // Small delay to show success message
-      setTimeout(() => {
-        navigate(route, { replace: true });
-      }, 500);
-
-    } catch (error) {
-      console.error("Login error:", error);
-      if (error.name === 'AbortError') {
-        showAlert("❌ Request timeout - server is taking too long", false);
-      } else {
-        showAlert("❌ Server error - please try again", false);
-      }
-    } finally {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-      setLoading(false);
+  } catch (error) {
+    console.error("Login error details:", error);
+    console.error("Error name:", error.name);
+    console.error("Error message:", error.message);
+    
+    if (error.name === 'AbortError') {
+      showAlert("❌ Request timeout - server took too long", false);
+    } else if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
+      showAlert("❌ Network error - cannot connect to server", false);
+    } else {
+      showAlert("❌ Login failed: " + error.message, false);
     }
-  };
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+    setLoading(false);
+  }
+};
 
   const closeAlert = () => setAlert(null);
 
