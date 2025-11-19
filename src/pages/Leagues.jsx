@@ -181,14 +181,22 @@ const Leagues = () => {
   }, []);
 
   // Check if user is admin of a league
-  const checkIfUserIsAdmin = useCallback((league) => {
-    if (!user || !league) return false;
-    
-    const userId = user._id || user.id;
-    const leagueAdminId = league.admin?._id || league.admin?.id || league.admin;
-    
-    return userId && leagueAdminId && userId.toString() === leagueAdminId.toString();
-  }, [user]);
+// Check if user is admin of a league - UPDATED for ObjectId comparison
+const checkIfUserIsAdmin = useCallback((league) => {
+  if (!user || !league) return false;
+  
+  const userId = user._id || user.id;
+  const leagueAdminId = league.admin;
+  
+  console.log('🔍 Frontend Admin Check:', {
+    userId: userId,
+    leagueAdminId: leagueAdminId,
+    leagueName: league?.name
+  });
+  
+  // Convert both to string for comparison (handles ObjectId and string)
+  return userId && leagueAdminId && userId.toString() === leagueAdminId.toString();
+}, [user]);
 
   // Fetch celebrating winners
   const fetchCelebratingWinners = useCallback(async () => {
