@@ -151,6 +151,7 @@ const Leagues = () => {
   const [selectedWeek, setSelectedWeek] = useState('all');
   const [user, setUser] = useState(null);
   const [celebratingWinners, setCelebratingWinners] = useState([]);
+  const [settingWinner, setSettingWinner] = useState(null);
 
   // Celebration context
   const { 
@@ -178,6 +179,16 @@ const Leagues = () => {
       isMountedRef.current = false;
     };
   }, []);
+
+  // Check if user is admin of a league
+  const checkIfUserIsAdmin = useCallback((league) => {
+    if (!user || !league) return false;
+    
+    const userId = user._id || user.id;
+    const leagueAdminId = league.admin?._id || league.admin?.id || league.admin;
+    
+    return userId && leagueAdminId && userId.toString() === leagueAdminId.toString();
+  }, [user]);
 
   // Fetch celebrating winners
   const fetchCelebratingWinners = useCallback(async () => {
@@ -241,6 +252,68 @@ const Leagues = () => {
       }
     }
   }, [fetchCelebratingWinners]);
+
+  // Set winner function with admin check
+  const handleSetWinner = useCallback(async (leagueId, teamName, teamLogo = '') => {
+    const league = leagues.find(l => l._id === leagueId);
+    
+    // Check if user is admin of this league
+    if (!checkIfUserIsAdmin(league)) {
+      setError('Only the league admin can set the winner');
+      return;
+    }
+
+    setSettingWinner(leagueId);
+    
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_URL}/api/leagues/${leagueId}/set-winner`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
+        body: JSON.stringify({
+          teamName,
+          teamLogo
+        })
+      });
+      
+      if (!response.ok) {
+        if (response.status === 403) {
+          throw new Error('Only admin can set winner');
+        }
+        throw new Error('Failed to set winner');
+      }
+      
+      const data = await response.json();
+      if (data.success) {
+        // Refresh leagues data
+        await fetchLeaguesData();
+        setError(null);
+      }
+    } catch (error) {
+      console.error('Error setting winner:', error);
+      setError(error.message || 'Failed to set winner');
+    } finally {
+      setSettingWinner(null);
+    }
+  }, [leagues, checkIfUserIsAdmin, fetchLeaguesData]);
+
+  // Set winner from standings
+  const handleSetWinnerFromStandings = useCallback((team) => {
+    if (!currentLeague) return;
+    
+    if (!checkIfUserIsAdmin(currentLeague)) {
+      setError('Only the league admin can set the winner');
+      return;
+    }
+
+    const confirmSet = window.confirm(`Set ${team.team} as league winner?`);
+    if (confirmSet) {
+      handleSetWinner(currentLeague._id, team.team, team.logo);
+    }
+  }, [currentLeague, checkIfUserIsAdmin, handleSetWinner]);
 
   useEffect(() => {
     fetchLeaguesData({ showSpinner: true });
@@ -345,6 +418,11 @@ const Leagues = () => {
     return currentLeague.winner;
   }, [currentLeague]);
 
+  // Check if user is admin of current league
+  const isCurrentLeagueAdmin = useMemo(() => {
+    return checkIfUserIsAdmin(currentLeague);
+  }, [currentLeague, checkIfUserIsAdmin]);
+
   return (
     <PageLayout
       pageTitle="Leagues & Tournaments"
@@ -403,6 +481,40 @@ const Leagues = () => {
 
       {currentLeague && (
         <>
+          {/* Admin Controls */}
+          {isCurrentLeagueAdmin && (
+            <motion.div
+              className="bg-blue-50 border border-blue-200 rounded-3xl p-4 mb-6"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Crown className="w-5 h-5 text-blue-600" />
+                  <span className="font-semibold text-blue-800">League Admin Controls</span>
+                </div>
+                <div className="text-sm text-blue-600">
+                  You are the admin of this league
+                </div>
+              </div>
+              
+              {/* Set Winner Button - Only show if no winner is set */}
+              {!currentLeagueWinner && (
+                <div className="mt-3 p-3 bg-white rounded-xl border border-blue-100">
+                  <p className="text-sm text-slate-600 mb-2">
+                    Set the league winner from the standings below by clicking the crown icon next to a team.
+                  </p>
+                  <div className="flex items-center space-x-2 text-xs text-slate-500">
+                    <div className="w-3 h-3 bg-yellow-100 border border-yellow-300 rounded-full flex items-center justify-center">
+                      <Crown className="w-2 h-2 text-yellow-600" />
+                    </div>
+                    <span>Click crown icon in standings to set winner</span>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          )}
+
           {/* Current Champions Banner for Active League */}
           {currentLeagueWinner && (
             <motion.div
@@ -476,6 +588,7 @@ const Leagues = () => {
             <div className="flex space-x-2 overflow-x-auto pb-2">
               {filteredLeagues.map((league) => {
                 const isCelebrating = league.isCelebrating && league.winner?.teamName;
+                const isAdmin = checkIfUserIsAdmin(league);
                 return (
                   <motion.button
                     key={league._id}
@@ -493,6 +606,11 @@ const Leagues = () => {
                         <Crown className="w-2 h-2 text-white" />
                       </div>
                     )}
+                    {isAdmin && !isCelebrating && (
+                      <div className="absolute -top-1 -right-1 w-4 h-4 bg-blue-500 rounded-full border-2 border-white flex items-center justify-center">
+                        <Award className="w-2 h-2 text-white" />
+                      </div>
+                    )}
                     <LeagueIconDisplay
                       league={league}
                       size={32}
@@ -502,6 +620,11 @@ const Leagues = () => {
                     {isCelebrating && (
                       <span className="bg-yellow-500 text-yellow-900 text-xs px-1.5 py-0.5 rounded-full">
                         🏆
+                      </span>
+                    )}
+                    {isAdmin && !isCelebrating && (
+                      <span className="bg-blue-500 text-white text-xs px-1.5 py-0.5 rounded-full">
+                        Admin
                       </span>
                     )}
                   </motion.button>
@@ -531,6 +654,14 @@ const Leagues = () => {
                     <div className="flex items-center gap-2 mt-1">
                       <div className="bg-white/20 rounded-full px-2 py-1 text-xs">
                         🏆 Champion: {currentLeagueWinner.teamName}
+                      </div>
+                    </div>
+                  )}
+                  {isCurrentLeagueAdmin && (
+                    <div className="flex items-center gap-2 mt-1">
+                      <div className="bg-blue-500/80 rounded-full px-2 py-1 text-xs flex items-center gap-1">
+                        <Award className="w-3 h-3" />
+                        You are Admin
                       </div>
                     </div>
                   )}
@@ -700,6 +831,7 @@ const Leagues = () => {
             <div className="space-y-1">
               {standings.map((team, index) => {
                 const isChampion = team.position === 1 && currentLeagueWinner;
+                const canSetWinner = isCurrentLeagueAdmin && !currentLeagueWinner;
                 return (
                   <motion.div
                     key={team.position}
@@ -709,11 +841,12 @@ const Leagues = () => {
                         : team.isUserTeam
                         ? 'bg-blue-50 border-blue-200 shadow-sm'
                         : 'bg-white border-slate-100 hover:bg-slate-50'
-                    }`}
+                    } ${canSetWinner ? 'cursor-pointer hover:shadow-md' : ''}`}
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: index * 0.05 }}
-                    whileHover={{ scale: team.isUserTeam || isChampion ? 1 : 1.02 }}
+                    whileHover={{ scale: team.isUserTeam || isChampion || canSetWinner ? 1.02 : 1 }}
+                    onClick={() => canSetWinner && handleSetWinnerFromStandings(team)}
                   >
                     <div className="col-span-1 flex items-center">
                       <div
@@ -729,9 +862,24 @@ const Leagues = () => {
                             : team.position <= 4
                             ? 'bg-blue-100 text-blue-800'
                             : 'bg-slate-100 text-slate-600'
-                        }`}
+                        } ${canSetWinner && team.position === 1 ? 'cursor-pointer hover:bg-yellow-200' : ''}`}
                       >
-                        {isChampion ? <Crown className="w-3 h-3" /> : team.position}
+                        {isChampion ? (
+                          <Crown className="w-3 h-3" />
+                        ) : canSetWinner && team.position === 1 ? (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSetWinnerFromStandings(team);
+                            }}
+                            className="w-full h-full flex items-center justify-center hover:scale-110 transition-transform"
+                            title="Set as winner"
+                          >
+                            <Crown className="w-3 h-3 text-yellow-600" />
+                          </button>
+                        ) : (
+                          team.position
+                        )}
                       </div>
                     </div>
 
@@ -764,6 +912,11 @@ const Leagues = () => {
                       {team.isUserTeam && !isChampion && (
                         <span className="ml-1 bg-blue-100 text-blue-800 text-xs px-1.5 py-0.5 rounded-full flex-shrink-0">
                           YOU
+                        </span>
+                      )}
+                      {canSetWinner && team.position === 1 && !isChampion && (
+                        <span className="ml-1 bg-yellow-100 text-yellow-700 text-xs px-1.5 py-0.5 rounded-full flex-shrink-0">
+                          Set Winner
                         </span>
                       )}
                     </div>
@@ -839,6 +992,14 @@ const Leagues = () => {
                   <div className="w-3 h-3 bg-blue-50 border-2 border-blue-300 border-dashed rounded" />
                   <span className="font-medium text-blue-700">Your Team</span>
                 </div>
+                {isCurrentLeagueAdmin && !currentLeagueWinner && (
+                  <div className="flex items-center space-x-2">
+                    <div className="w-3 h-3 bg-yellow-100 border border-yellow-300 rounded flex items-center justify-center">
+                      <Crown className="w-2 h-2 text-yellow-600" />
+                    </div>
+                    <span className="font-medium text-yellow-700">Click to set winner</span>
+                  </div>
+                )}
               </div>
             </div>
           </motion.div>
