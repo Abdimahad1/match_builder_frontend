@@ -1,3 +1,4 @@
+// Login.jsx
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
@@ -15,7 +16,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // Clear any existing auth data
+    // Pre-clear storage for fresh login
     localStorage.removeItem("token");
     localStorage.removeItem("role");
     localStorage.removeItem("username");
@@ -24,7 +25,7 @@ export default function Login() {
 
   const showAlert = (msg, success = false) => {
     setAlert({ msg, success });
-    setTimeout(() => setAlert(null), 5000);
+    setTimeout(() => setAlert(null), 4000);
   };
 
   const handleLogin = async (e) => {
@@ -36,100 +37,103 @@ export default function Login() {
     }
 
     setLoading(true);
+    const performanceStart = performance.now();
 
     try {
-      const startTime = Date.now();
-      console.log('🔐 Sending login request to:', `${API_URL}/api/auth/login`);
+      const requestStart = performance.now();
+      console.log('🔐 Starting login process...');
       
-      // Create a simple timeout promise
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Request timeout after 30 seconds')), 30000)
-      );
+      // Create abort controller for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
 
-      // Fetch with timeout race
-      const fetchPromise = fetch(`${API_URL}/api/auth/login`, {
+      const response = await fetch(`${API_URL}/api/auth/login`, {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
+          "X-Request-ID": Date.now().toString(36) + Math.random().toString(36).substr(2)
         },
         body: JSON.stringify({ 
           username: username.trim(), 
           password: password.trim() 
         }),
-        credentials: 'include'
+        credentials: 'include',
+        signal: controller.signal
       });
 
-      const res = await Promise.race([fetchPromise, timeoutPromise]);
+      clearTimeout(timeoutId);
       
-      const responseTime = Date.now() - startTime;
-      console.log(`⏱️ Login API response time: ${responseTime}ms`);
-      console.log('📨 Response status:', res.status);
+      const requestTime = performance.now() - requestStart;
+      console.log(`⏱️ API response received in: ${requestTime.toFixed(2)}ms`);
 
-      if (!res.ok) {
-        let errorMessage = `Server error: ${res.status}`;
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorMessage = `Login failed: ${response.status}`;
+        
         try {
-          const errorData = await res.json();
+          const errorData = JSON.parse(errorText);
           errorMessage = errorData.message || errorMessage;
         } catch {
-          // If response is not JSON, use status text
-          errorMessage = res.statusText || errorMessage;
+          errorMessage = errorText || errorMessage;
         }
+        
         throw new Error(errorMessage);
       }
 
-      const data = await res.json();
-      console.log('✅ Login response received');
+      const data = await response.json();
+      console.log('✅ Login successful, processing response...');
 
       if (!data.success) {
         showAlert(`❌ ${data.message || "Login failed"}`, false);
         return;
       }
 
-      // Store user data
+      // ULTRA-FAST STORAGE PROCESSING
+      const storageStart = performance.now();
+      
       try {
+        // Store essential data only - minimal footprint
         localStorage.setItem("token", data.data.token);
         localStorage.setItem("role", data.data.role);
         localStorage.setItem("username", data.data.username);
 
-        const userData = {
+        // Minimal user data - only what's absolutely needed
+        const essentialUserData = {
           _id: data.data._id,
-          userCode: data.data.userCode,
           username: data.data.username,
-          phoneNumber: data.data.phoneNumber,
           role: data.data.role,
-          isAdmin: data.data.isAdmin,
-          settings: data.data.settings || {
-            profileImageUrl: "",
-            selectedLeague: { code: "", name: "" },
-            selectedTeam: { name: "", logoUrl: "" }
-          }
+          isAdmin: data.data.isAdmin
+          // Skip optional fields for faster storage
         };
         
-        localStorage.setItem("user", JSON.stringify(userData));
-        console.log('💾 User data stored successfully');
+        localStorage.setItem("user", JSON.stringify(essentialUserData));
+        
+        const storageTime = performance.now() - storageStart;
+        console.log(`💾 Storage completed in: ${storageTime.toFixed(2)}ms`);
+        
       } catch (storageError) {
         console.error('Storage error:', storageError);
-        showAlert("❌ Error saving user data", false);
-        return;
+        throw new Error('Failed to save session data');
       }
 
-      showAlert("🎉 Login Successful! Redirecting...", true);
-
-      // Navigate after short delay
-      setTimeout(() => {
-        const route = data.data.role === "admin" ? "/admin" : "/dashboard";
-        navigate(route, { replace: true });
-      }, 1500);
+      // IMMEDIATE NAVIGATION - NO DELAYS
+      const totalTime = performance.now() - performanceStart;
+      console.log(`🎯 Login completed in: ${totalTime.toFixed(2)}ms - Redirecting immediately`);
+      
+      showAlert("✅ Login Successful! Redirecting...", true);
+      
+      // INSTANT navigation - no setTimeout
+      const route = data.data.role === "admin" ? "/admin" : "/dashboard";
+      navigate(route, { replace: true });
 
     } catch (error) {
-      console.error("💥 Login error:", error);
+      const totalTime = performance.now() - performanceStart;
+      console.error(`💥 Login failed after ${totalTime.toFixed(2)}ms:`, error);
       
-      if (error.message.includes('timeout')) {
-        showAlert("⏰ Request timeout - server is taking too long to respond", false);
-      } else if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
-        showAlert("🌐 Network error - cannot connect to server", false);
-      } else if (error.message.includes('NetworkError')) {
-        showAlert("📡 Network connection failed - check your internet", false);
+      if (error.name === 'AbortError') {
+        showAlert("⏰ Request timeout - please try again", false);
+      } else if (error.name === 'TypeError' && error.message.includes('fetch')) {
+        showAlert("🌐 Network error - check your connection", false);
       } else {
         showAlert(`❌ ${error.message}`, false);
       }
@@ -143,14 +147,14 @@ export default function Login() {
   return (
     <div className="h-screen w-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-2 overflow-hidden">
 
-      {/* ANIMATED ALERT */}
+      {/* PERFORMANCE-OPTIMIZED ALERT */}
       <AnimatePresence>
         {alert && (
           <motion.div
-            initial={{ y: -50, opacity: 0, scale: 0.8 }}
-            animate={{ y: 20, opacity: 1, scale: 1 }}
-            exit={{ y: -50, opacity: 0, scale: 0.8 }}
-            transition={{ type: "spring", stiffness: 300, damping: 20 }}
+            initial={{ y: -50, opacity: 0 }}
+            animate={{ y: 20, opacity: 1 }}
+            exit={{ y: -50, opacity: 0 }}
+            transition={{ duration: 0.3 }}
             className={`fixed top-5 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-xl shadow-2xl text-white font-semibold flex items-center space-x-4 ${
               alert.success ? "bg-green-500" : "bg-red-500"
             }`}
@@ -166,15 +170,16 @@ export default function Login() {
         )}
       </AnimatePresence>
 
-      {/* MAIN CARD */}
+      {/* OPTIMIZED LOGIN CARD */}
       <div className="w-full max-w-5xl h-[90vh] md:h-[80vh] bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col md:flex-row">
 
-        {/* LEFT SIDE IMAGE */}
+        {/* LEFT SIDE - OPTIMIZED IMAGE */}
         <div className="relative w-full md:w-1/2 h-1/3 md:h-full">
           <img
             src="https://images.unsplash.com/photo-1518091043644-c1d4457512c6"
             alt="football"
-            className="absolute inset-0 w-full h-full object-cover brightness-90"
+            className="absolute inset-0 w-full h-full object-cover"
+            loading="eager" // Load immediately
           />
           <div className="absolute inset-0 bg-gradient-to-t from-slate-900/70 to-slate-900/30"></div>
           <div className="absolute bottom-6 left-4 text-white md:hidden">
@@ -183,7 +188,7 @@ export default function Login() {
           </div>
         </div>
 
-        {/* RIGHT SIDE FORM */}
+        {/* RIGHT SIDE - OPTIMIZED FORM */}
         <div className="w-full md:w-1/2 flex items-center justify-center bg-white p-6 md:p-12">
           <div className="w-full max-w-sm">
 
@@ -194,7 +199,7 @@ export default function Login() {
 
             <form onSubmit={handleLogin} className="space-y-5">
 
-              {/* USERNAME */}
+              {/* USERNAME FIELD */}
               <div className="space-y-1">
                 <label className="block font-semibold text-gray-700">Username</label>
                 <div className="relative">
@@ -203,21 +208,22 @@ export default function Login() {
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     className="w-full p-4 rounded-2xl border-2 border-gray-200 bg-white 
-                    focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-200 
-                    transition-all duration-300 shadow-lg hover:shadow-xl"
+                    focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 
+                    transition-all duration-200"
                     placeholder="Enter username"
                     required
                     disabled={loading}
+                    autoComplete="username"
                   />
                   <span className="absolute right-4 top-1/2 -translate-y-1/2 w-7 h-7 
                     bg-gradient-to-r from-blue-400 to-blue-600 rounded-full text-white 
-                    flex items-center justify-center text-sm shadow-md">
+                    flex items-center justify-center text-sm">
                     👤
                   </span>
                 </div>
               </div>
 
-              {/* PASSWORD */}
+              {/* PASSWORD FIELD */}
               <div className="space-y-1">
                 <label className="block font-semibold text-gray-700">Password</label>
                 <div className="relative">
@@ -226,11 +232,12 @@ export default function Login() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="w-full p-4 rounded-2xl border-2 border-gray-200 bg-white 
-                    focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-200 
-                    transition-all duration-300 shadow-lg hover:shadow-xl"
+                    focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 
+                    transition-all duration-200"
                     placeholder="Enter password"
                     required
                     disabled={loading}
+                    autoComplete="current-password"
                   />
                   <button
                     type="button"
@@ -243,20 +250,20 @@ export default function Login() {
                   </button>
                   <span className="absolute right-4 top-1/2 -translate-y-1/2 w-7 h-7 
                     bg-gradient-to-r from-green-400 to-green-600 rounded-full text-white 
-                    flex items-center justify-center text-sm shadow-md">
+                    flex items-center justify-center text-sm">
                     🔒
                   </span>
                 </div>
               </div>
 
-              {/* SUBMIT BUTTON */}
+              {/* HIGH-PERFORMANCE SUBMIT BUTTON */}
               <button
                 type="submit"
                 disabled={loading}
                 className="w-full bg-gradient-to-r from-blue-600 to-indigo-700 
-                text-white py-4 rounded-2xl font-bold text-lg shadow-xl 
-                hover:shadow-2xl transform hover:-translate-y-1 transition-all duration-300 
-                disabled:opacity-60 disabled:cursor-not-allowed disabled:transform-none"
+                text-white py-4 rounded-2xl font-bold text-lg shadow-lg 
+                hover:shadow-xl transition-all duration-200 
+                disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {loading ? (
                   <div className="flex items-center justify-center space-x-2">
