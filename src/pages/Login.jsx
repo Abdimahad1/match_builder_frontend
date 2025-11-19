@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Eye, EyeOff } from "lucide-react";
@@ -15,7 +15,6 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // Clear any existing auth data
     localStorage.removeItem("token");
     localStorage.removeItem("role");
     localStorage.removeItem("username");
@@ -24,12 +23,12 @@ export default function Login() {
 
   const showAlert = (msg, success = false) => {
     setAlert({ msg, success });
-    setTimeout(() => setAlert(null), 5000);
   };
 
   const handleLogin = async (e) => {
     e.preventDefault();
     
+    // Basic validation
     if (!username.trim() || !password.trim()) {
       showAlert("❌ Please fill in all fields", false);
       return;
@@ -37,103 +36,83 @@ export default function Login() {
 
     setLoading(true);
 
-    try {
-      const startTime = Date.now();
-      console.log('🔐 Sending login request to:', `${API_URL}/api/auth/login`);
-      
-      // Create a simple timeout promise
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Request timeout after 30 seconds')), 30000)
-      );
+    const controller = new AbortController();
+    let timeoutId;
 
-      // Fetch with timeout race
-      const fetchPromise = fetch(`${API_URL}/api/auth/login`, {
+    try {
+      // Set timeout for the request
+      timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+
+      const startTime = Date.now();
+      
+      const res = await fetch(`${API_URL}/api/auth/login`, {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
+          "X-Request-ID": Date.now().toString() // Add request ID for tracking
         },
         body: JSON.stringify({ 
           username: username.trim(), 
           password: password.trim() 
         }),
-        credentials: 'include'
+        signal: controller.signal
       });
 
-      const res = await Promise.race([fetchPromise, timeoutPromise]);
-      
       const responseTime = Date.now() - startTime;
-      console.log(`⏱️ Login API response time: ${responseTime}ms`);
-      console.log('📨 Response status:', res.status);
-
-      if (!res.ok) {
-        let errorMessage = `Server error: ${res.status}`;
-        try {
-          const errorData = await res.json();
-          errorMessage = errorData.message || errorMessage;
-        } catch {
-          // If response is not JSON, use status text
-          errorMessage = res.statusText || errorMessage;
-        }
-        throw new Error(errorMessage);
-      }
+      console.log(`Login API response time: ${responseTime}ms`);
 
       const data = await res.json();
-      console.log('✅ Login response received');
 
       if (!data.success) {
-        showAlert(`❌ ${data.message || "Login failed"}`, false);
+        showAlert("❌ " + (data.message || "Login failed"), false);
+        setLoading(false);
         return;
       }
 
-      // Store user data
-      try {
-        localStorage.setItem("token", data.data.token);
-        localStorage.setItem("role", data.data.role);
-        localStorage.setItem("username", data.data.username);
+      // ✅ Store user data immediately
+      localStorage.clear();
+      localStorage.setItem("token", data.data.token);
+      localStorage.setItem("role", data.data.role);
+      localStorage.setItem("username", data.data.username);
 
-        const userData = {
-          _id: data.data._id,
-          userCode: data.data.userCode,
-          username: data.data.username,
-          phoneNumber: data.data.phoneNumber,
-          role: data.data.role,
-          isAdmin: data.data.isAdmin,
-          settings: data.data.settings || {
-            profileImageUrl: "",
-            selectedLeague: { code: "", name: "" },
-            selectedTeam: { name: "", logoUrl: "" }
-          }
-        };
-        
-        localStorage.setItem("user", JSON.stringify(userData));
-        console.log('💾 User data stored successfully');
-      } catch (storageError) {
-        console.error('Storage error:', storageError);
-        showAlert("❌ Error saving user data", false);
-        return;
-      }
+      // ✅ Use the user data from login response directly (no second API call)
+      const userData = {
+        _id: data.data._id,
+        userCode: data.data.userCode,
+        username: data.data.username,
+        phoneNumber: data.data.phoneNumber,
+        role: data.data.role,
+        isAdmin: data.data.isAdmin,
+        settings: data.data.settings || {
+          profileImageUrl: "",
+          selectedLeague: { code: "", name: "" },
+          selectedTeam: { name: "", logoUrl: "" }
+        }
+      };
+      
+      localStorage.setItem("user", JSON.stringify(userData));
 
-      showAlert("🎉 Login Successful! Redirecting...", true);
+      showAlert("🎉 Login Successful!", true);
 
-      // Navigate after short delay
+      // ✅ Navigate immediately without waiting for profile fetch
+      const route = data.data.role === "admin" ? "/admin" : "/dashboard";
+      
+      // Small delay to show success message
       setTimeout(() => {
-        const route = data.data.role === "admin" ? "/admin" : "/dashboard";
         navigate(route, { replace: true });
-      }, 1500);
+      }, 500);
 
     } catch (error) {
-      console.error("💥 Login error:", error);
-      
-      if (error.message.includes('timeout')) {
-        showAlert("⏰ Request timeout - server is taking too long to respond", false);
-      } else if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
-        showAlert("🌐 Network error - cannot connect to server", false);
-      } else if (error.message.includes('NetworkError')) {
-        showAlert("📡 Network connection failed - check your internet", false);
+      console.error("Login error:", error);
+      if (error.name === 'AbortError') {
+        showAlert("❌ Request timeout - server is taking too long", false);
       } else {
-        showAlert(`❌ ${error.message}`, false);
+        showAlert("❌ Server error - please try again", false);
       }
     } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
       setLoading(false);
     }
   };
