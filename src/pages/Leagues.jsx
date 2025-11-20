@@ -663,7 +663,8 @@ const Leagues = () => {
               })}
             </div>
           </motion.div>
-                        <motion.div
+
+          <motion.div
             className="bg-gradient-to-r from-yellow-500 to-orange-500 rounded-3xl p-4 shadow-2xl text-white mb-6"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -1122,7 +1123,6 @@ const Leagues = () => {
               })}
             </div>
           </motion.div>
-          
         </>
       )}
     </PageLayout>
