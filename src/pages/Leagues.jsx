@@ -141,7 +141,47 @@ const buildStandings = (league, userTeamName = '') => {
     });
 };
 
-const Leagues = () => {
+// Error Boundary Component
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('League component error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-yellow-50 to-orange-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-8 shadow-lg border border-red-200 max-w-md w-full text-center">
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Trophy className="w-8 h-8 text-red-500" />
+            </div>
+            <h2 className="text-xl font-bold text-red-600 mb-2">Something went wrong</h2>
+            <p className="text-slate-600 mb-4">There was an error loading the leagues page.</p>
+            <button 
+              onClick={() => this.setState({ hasError: false, error: null })}
+              className="px-6 py-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+            >
+              Try Again
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+const LeaguesContent = () => {
   const [leagues, setLeagues] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -181,22 +221,21 @@ const Leagues = () => {
   }, []);
 
   // Check if user is admin of a league
-// Check if user is admin of a league - UPDATED for ObjectId comparison
-const checkIfUserIsAdmin = useCallback((league) => {
-  if (!user || !league) return false;
-  
-  const userId = user._id || user.id;
-  const leagueAdminId = league.admin;
-  
-  console.log('🔍 Frontend Admin Check:', {
-    userId: userId,
-    leagueAdminId: leagueAdminId,
-    leagueName: league?.name
-  });
-  
-  // Convert both to string for comparison (handles ObjectId and string)
-  return userId && leagueAdminId && userId.toString() === leagueAdminId.toString();
-}, [user]);
+  const checkIfUserIsAdmin = useCallback((league) => {
+    if (!user || !league) return false;
+    
+    const userId = user._id || user.id;
+    const leagueAdminId = league.admin;
+    
+    console.log('🔍 Frontend Admin Check:', {
+      userId: userId,
+      leagueAdminId: leagueAdminId,
+      leagueName: league?.name
+    });
+    
+    // Convert both to string for comparison (handles ObjectId and string)
+    return userId && leagueAdminId && userId.toString() === leagueAdminId.toString();
+  }, [user]);
 
   // Fetch celebrating winners
   const fetchCelebratingWinners = useCallback(async () => {
@@ -449,7 +488,10 @@ const checkIfUserIsAdmin = useCallback((league) => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
         >
-          Fetching leagues…
+          <div className="flex items-center justify-center space-x-2">
+            <div className="w-4 h-4 bg-yellow-500 rounded-full animate-pulse"></div>
+            <div>Fetching leagues…</div>
+          </div>
         </motion.div>
       )}
 
@@ -459,7 +501,18 @@ const checkIfUserIsAdmin = useCallback((league) => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
         >
-          {error}
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-bold text-red-800">Error Loading Leagues</h3>
+              <p>{error}</p>
+            </div>
+            <button
+              onClick={() => fetchLeaguesData({ showSpinner: true })}
+              className="px-4 py-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+            >
+              Retry
+            </button>
+          </div>
         </motion.div>
       )}
 
@@ -469,6 +522,9 @@ const checkIfUserIsAdmin = useCallback((league) => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
         >
+          <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Trophy className="w-8 h-8 text-slate-400" />
+          </div>
           <h2 className="text-xl font-bold text-slate-800 mb-2">No leagues available yet</h2>
           <p className="text-slate-600">
             Leagues created by administrators will appear here with live stats and standings.
@@ -482,8 +538,21 @@ const checkIfUserIsAdmin = useCallback((league) => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
         >
+          <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Trophy className="w-8 h-8 text-slate-400" />
+          </div>
           <h2 className="text-xl font-bold text-slate-800 mb-2">No leagues for selected filters</h2>
           <p className="text-slate-600">Try choosing a different year or month.</p>
+          <button
+            onClick={() => {
+              setSelectedYear('all');
+              setSelectedMonth('all');
+              setSelectedWeek('all');
+            }}
+            className="mt-4 px-4 py-2 bg-slate-800 text-white rounded-full hover:bg-slate-900 transition-colors"
+          >
+            Reset Filters
+          </button>
         </motion.div>
       )}
 
@@ -1103,6 +1172,15 @@ const checkIfUserIsAdmin = useCallback((league) => {
         </>
       )}
     </PageLayout>
+  );
+};
+
+// Main Leagues component with error boundary
+const Leagues = () => {
+  return (
+    <ErrorBoundary>
+      <LeaguesContent />
+    </ErrorBoundary>
   );
 };
 
