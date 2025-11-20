@@ -6,7 +6,7 @@ import { Calendar, Trophy, Users, TrendingUp, Play, CheckSquare, Clock, Crown, S
 import PageLayout from '../components/PageLayout';
 import { useCelebration } from '../contexts/CelebrationContext';
 import CelebrationModal from '../components/CelebrationModal';
-
+import React from 'react';
 const API_URL = import.meta.env.VITE_API_URL;
 
 const Dashboard = () => {

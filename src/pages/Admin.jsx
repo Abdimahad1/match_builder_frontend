@@ -4,7 +4,7 @@ import PageLayout from '../components/PageLayout';
 import { useNavigate } from 'react-router-dom';
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Crown, Trophy, Users, Star, Award } from 'lucide-react';
-
+import React from 'react';
 
 const API_URL = import.meta.env.VITE_API_URL;
 

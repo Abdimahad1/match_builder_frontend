@@ -6,7 +6,7 @@ import { LeagueIconDisplay } from '../utils/leagueIcons';
 import { Crown, Trophy, Star, Award } from 'lucide-react';
 import { useCelebration } from '../contexts/CelebrationContext';
 import CelebrationModal from '../components/CelebrationModal';
-
+import React from 'react';
 const API_URL = import.meta.env.VITE_API_URL;
 
 const months = [
