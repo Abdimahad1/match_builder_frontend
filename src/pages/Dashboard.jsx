@@ -6,7 +6,7 @@ import { Calendar, Trophy, Users, TrendingUp, Play, CheckSquare, Clock, Crown, S
 import PageLayout from '../components/PageLayout';
 import { useCelebration } from '../contexts/CelebrationContext';
 import CelebrationModal from '../components/CelebrationModal';
-import React from 'react';
+
 const API_URL = import.meta.env.VITE_API_URL;
 
 const Dashboard = () => {
@@ -102,9 +102,13 @@ const Dashboard = () => {
       } else {
         const userData = localStorage.getItem('user');
         if (userData) {
-          const userObj = JSON.parse(userData);
-          setUser(userObj);
-          setUserSettings(userObj.settings || null);
+          try {
+            const userObj = JSON.parse(userData);
+            setUser(userObj);
+            setUserSettings(userObj.settings || null);
+          } catch (parseError) {
+            console.error('Error parsing user data:', parseError);
+          }
         }
       }
 
@@ -112,19 +116,25 @@ const Dashboard = () => {
         const leagues = leaguesRes.data.data || [];
         setMyLeagues(leagues);
 
-        const currentUser =
-          userRes.data.success
-            ? userRes.data.data
-            : localStorage.getItem('user')
-              ? JSON.parse(localStorage.getItem('user'))
-              : null;
+        const currentUser = userRes.data.success
+          ? userRes.data.data
+          : (() => {
+              try {
+                const userData = localStorage.getItem('user');
+                return userData ? JSON.parse(userData) : null;
+              } catch {
+                return null;
+              }
+            })();
+        
         const currentUserId = currentUser?._id || currentUser?.id;
 
         const teamNames = [];
         leagues.forEach(league => {
           league.participants?.forEach(participant => {
             const participantUserId = participant.userId?._id || participant.userId?.id || participant.userId;
-            if (participantUserId && (participantUserId.toString() === currentUserId?.toString() || participantUserId === currentUserId)) {
+            if (participantUserId && currentUserId && 
+                (participantUserId.toString() === currentUserId.toString() || participantUserId === currentUserId)) {
               teamNames.push(participant.teamName);
             }
           });
@@ -159,7 +169,7 @@ const Dashboard = () => {
 
         setUserMatches(allMatches);
         const next = allMatches.find(m => !m.played);
-        setNextMatch(next);
+        setNextMatch(next || null);
 
         const playedMatches = allMatches.filter(m => m.played);
         const upcomingMatches = allMatches.filter(m => !m.played);
@@ -215,6 +225,17 @@ const Dashboard = () => {
         setMyLeagues([]);
         setUserMatches([]);
         setUserTeamNames([]);
+        setNextMatch(null);
+        setStats({
+          upcoming: 0,
+          leagues: 0,
+          points: 0,
+          winRate: 0,
+          matchesPlayed: 0,
+          wins: 0,
+          draws: 0,
+          losses: 0
+        });
       }
 
       // Fetch celebrating winners
@@ -227,6 +248,17 @@ const Dashboard = () => {
       setMyLeagues([]);
       setUserMatches([]);
       setUserTeamNames([]);
+      setNextMatch(null);
+      setStats({
+        upcoming: 0,
+        leagues: 0,
+        points: 0,
+        winRate: 0,
+        matchesPlayed: 0,
+        wins: 0,
+        draws: 0,
+        losses: 0
+      });
       return null;
     } finally {
       if (showSpinner && isMountedRef.current) {
@@ -244,7 +276,7 @@ const Dashboard = () => {
     return () => clearInterval(intervalId);
   }, [fetchData]);
 
-  const getTeamLogo = (teamName, league) => {
+  const getTeamLogo = useCallback((teamName, league) => {
     if (!teamName) {
       return `https://api.dicebear.com/7.x/shapes/svg?seed=unknown&backgroundColor=blue,green&size=80`;
     }
@@ -275,11 +307,10 @@ const Dashboard = () => {
     }
 
     return `https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(teamName)}&backgroundColor=blue,green&size=80`;
-  };
+  }, [userSettings]);
 
   const filteredMatches = userMatches.filter(match => {
     if (activeTab === "all") return true;
-    if (activeTab === "now") return false; // No live matches for now
     if (activeTab === "finished") return match.played;
     if (activeTab === "scheduled") return !match.played;
     return true;
@@ -464,6 +495,9 @@ const Dashboard = () => {
                     src={getTeamLogo(nextMatch.userTeam, myLeagues.find(l => l._id === nextMatch.leagueId))} 
                     alt={nextMatch.userTeam}
                     className="w-12 h-12 object-contain rounded-lg"
+                    onError={(e) => {
+                      e.target.src = `https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(nextMatch.userTeam)}&backgroundColor=blue,green&size=80`;
+                    }}
                   />
                 </div>
                 <p className="font-semibold text-sm mb-1">{nextMatch.userTeam}</p>
@@ -496,6 +530,9 @@ const Dashboard = () => {
                     src={getTeamLogo(nextMatch.opponent, myLeagues.find(l => l._id === nextMatch.leagueId))} 
                     alt={nextMatch.opponent}
                     className="w-12 h-12 object-contain rounded-lg"
+                    onError={(e) => {
+                      e.target.src = `https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(nextMatch.opponent)}&backgroundColor=purple,orange&size=80`;
+                    }}
                   />
                 </div>
                 <p className="font-semibold text-sm mb-1">{nextMatch.opponent}</p>
@@ -677,6 +714,9 @@ const Dashboard = () => {
                               src={getTeamLogo(match.userTeam, league)} 
                               alt={match.userTeam}
                               className="w-8 h-8 object-contain rounded-lg"
+                              onError={(e) => {
+                                e.target.src = `https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(match.userTeam)}&backgroundColor=blue,green&size=80`;
+                              }}
                             />
                           </div>
                           <div className="min-w-0 flex-1">
@@ -731,6 +771,9 @@ const Dashboard = () => {
                               src={getTeamLogo(match.opponent, league)} 
                               alt={match.opponent}
                               className="w-8 h-8 object-contain rounded-lg"
+                              onError={(e) => {
+                                e.target.src = `https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(match.opponent)}&backgroundColor=purple,orange&size=80`;
+                              }}
                             />
                           </div>
                         </div>
