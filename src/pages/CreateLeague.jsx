@@ -403,10 +403,32 @@ export default function CreateLeague() {
     return [];
   };
 
+  // FIXED: Check if user is admin of a league
+  const checkIfUserIsAdmin = useCallback((league) => {
+    if (!user || !league) return false;
+    
+    const userId = user._id || user.id;
+    const leagueAdminId = league.admin?._id || league.admin;
+    
+    console.log('🔍 Frontend Admin Check:', {
+      userId: userId,
+      leagueAdminId: leagueAdminId,
+      leagueName: league?.name
+    });
+    
+    // Convert both to string for comparison (handles ObjectId and string)
+    return userId && leagueAdminId && userId.toString() === leagueAdminId.toString();
+  }, [user]);
+
   const beginEditResult = (match) => {
+    if (!match || !match._id) {
+      showAlert("Invalid match data", false);
+      return;
+    }
+    
     setEditingMatchId(match._id);
-    setTempHomeGoals(match.homeGoals ?? "");
-    setTempAwayGoals(match.awayGoals ?? "");
+    setTempHomeGoals(match.homeGoals?.toString() || "");
+    setTempAwayGoals(match.awayGoals?.toString() || "");
   };
 
   const cancelEditResult = () => {
@@ -415,42 +437,75 @@ export default function CreateLeague() {
     setTempAwayGoals("");
   };
 
+  // FIXED: Save match result with better error handling and prevents double counting
   const saveMatchResult = async (leagueId, matchId) => {
     const h = tempHomeGoals === "" ? 0 : parseInt(tempHomeGoals, 10);
     const a = tempAwayGoals === "" ? 0 : parseInt(tempAwayGoals, 10);
+    
     if (isNaN(h) || isNaN(a) || h < 0 || a < 0) {
       showAlert("Please enter valid non-negative numbers for goals", false);
       return;
     }
+    
     try {
       setSavingResult(true);
       const token = localStorage.getItem('token');
+      
+      // Enhanced request with better error handling
       const res = await fetch(`${API_URL}/api/leagues/match/${matchId}/result`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
+          "Authorization": token ? `Bearer ${token}` : ''
         },
-        body: JSON.stringify({ homeGoals: h, awayGoals: a })
+        body: JSON.stringify({ 
+          homeGoals: h, 
+          awayGoals: a 
+        })
       });
+
+      // Check if response is ok first
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ message: 'Failed to update match result' }));
+        throw new Error(errorData.message || `HTTP error! status: ${res.status}`);
+      }
+
       const data = await res.json();
+      
       if (data.success) {
-        showAlert("Match result saved.", true);
+        showAlert("Match result saved successfully!", true);
+        
+        // Refresh the leagues data
         await fetchLeagues();
-        const fresh = await (await fetch(`${API_URL}/api/leagues`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        })).json();
-        if (fresh.success && selectedLeagueForMatches) {
-          const updated = fresh.data.find(l => l._id === leagueId);
-          if (updated) setSelectedLeagueForMatches(updated);
+        
+        // Update the selected league with fresh data
+        if (selectedLeagueForMatches) {
+          const freshLeagues = await fetchLeagues({ silent: true });
+          if (freshLeagues && freshLeagues.success) {
+            const updatedLeague = freshLeagues.data.find(l => l._id === leagueId);
+            if (updatedLeague) {
+              setSelectedLeagueForMatches(updatedLeague);
+            }
+          }
         }
+        
         cancelEditResult();
       } else {
-        showAlert(data.message || "Failed to save result", false);
+        showAlert(data.message || "Failed to save match result", false);
       }
     } catch (err) {
-      console.error(err);
-      showAlert("Server error: Could not save result", false);
+      console.error('Error saving match result:', err);
+      
+      // More specific error messages
+      if (err.message.includes('500') || err.message.includes('Internal Server Error')) {
+        showAlert("Server error: Unable to save match result. Please try again.", false);
+      } else if (err.message.includes('403')) {
+        showAlert("Permission denied: Only league admin can update match results.", false);
+      } else if (err.message.includes('401')) {
+        showAlert("Authentication required. Please log in again.", false);
+      } else {
+        showAlert(err.message || "Failed to save match result", false);
+      }
     } finally {
       setSavingResult(false);
     }
@@ -458,7 +513,7 @@ export default function CreateLeague() {
 
   // Shuffle participants order (admin, draft)
   const shuffleParticipants = async (league) => {
-    if (league.status !== 'draft' || league.admin._id !== user?._id) return;
+    if (league.status !== 'draft' || !checkIfUserIsAdmin(league)) return;
     try {
       const shuffled = [...(league.participants || [])]
         .map(p => ({ p, r: Math.random() }))
@@ -514,7 +569,7 @@ export default function CreateLeague() {
     return league.status === 'draft' && 
            league.participants && 
            league.participants.length >= 2 &&
-           league.admin._id === user?._id;
+           checkIfUserIsAdmin(league);
   };
 
   // Enhanced participant display with logos
@@ -549,6 +604,11 @@ export default function CreateLeague() {
     const diffTime = endDate - now;
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     return diffDays > 0 ? diffDays : 0;
+  };
+
+  // FIXED: Check if user can edit matches
+  const canEditMatch = (league) => {
+    return checkIfUserIsAdmin(league);
   };
 
   return (
@@ -887,6 +947,7 @@ export default function CreateLeague() {
               <div className="space-y-4">
                 {filteredLeagues.map((league) => {
                   const isCelebrating = league.isCelebrating && league.winner?.teamName;
+                  const isAdmin = checkIfUserIsAdmin(league);
                   return (
                     <motion.div
                       key={league._id}
@@ -1462,9 +1523,16 @@ export default function CreateLeague() {
                                             <button
                                               onClick={() => saveMatchResult(selectedLeagueForMatches._id, match._id)}
                                               disabled={savingResult}
-                                              className="px-3 py-2 bg-emerald-500 text-white rounded-lg font-semibold hover:bg-emerald-600 disabled:opacity-50"
+                                              className="px-3 py-2 bg-emerald-500 text-white rounded-lg font-semibold hover:bg-emerald-600 disabled:opacity-50 flex items-center gap-2"
                                             >
-                                              {savingResult ? "Saving..." : "Save"}
+                                              {savingResult ? (
+                                                <>
+                                                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                                  Saving...
+                                                </>
+                                              ) : (
+                                                "Save"
+                                              )}
                                             </button>
                                             <button
                                               onClick={cancelEditResult}
@@ -1489,12 +1557,15 @@ export default function CreateLeague() {
                                             >
                                               {match.played ? "Finished" : "Scheduled"}
                                             </div>
-                                            <button
-                                              onClick={() => beginEditResult(match)}
-                                              className="px-3 py-2 bg-indigo-500 text-white rounded-lg font-semibold hover:bg-indigo-600"
-                                            >
-                                              Enter Result
-                                            </button>
+                                            {canEditMatch(selectedLeagueForMatches) && (
+                                              <button
+                                                onClick={() => beginEditResult(match)}
+                                                className="px-3 py-2 bg-indigo-500 text-white rounded-lg font-semibold hover:bg-indigo-600 flex items-center gap-2"
+                                              >
+                                                <Edit3 className="w-4 h-4" />
+                                                Enter Result
+                                              </button>
+                                            )}
                                           </>
                                         )}
                                       </div>
