@@ -141,40 +141,7 @@ const buildStandings = (league, userTeamName = '') => {
     });
 };
 
-// Simple Error Boundary Component as a function
-const ErrorBoundary = ({ children }) => {
-  const [hasError, setHasError] = useState(false);
-  const [error, setError] = useState(null);
-
-  const handleReset = () => {
-    setHasError(false);
-    setError(null);
-  };
-
-  if (hasError) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-yellow-50 to-orange-50 flex items-center justify-center p-4">
-        <div className="bg-white rounded-3xl p-8 shadow-lg border border-red-200 max-w-md w-full text-center">
-          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Trophy className="w-8 h-8 text-red-500" />
-          </div>
-          <h2 className="text-xl font-bold text-red-600 mb-2">Something went wrong</h2>
-          <p className="text-slate-600 mb-4">There was an error loading the leagues page.</p>
-          <button 
-            onClick={handleReset}
-            className="px-6 py-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
-          >
-            Try Again
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return children;
-};
-
-const LeaguesContent = () => {
+const Leagues = () => {
   const [leagues, setLeagues] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -219,12 +186,6 @@ const LeaguesContent = () => {
     
     const userId = user._id || user.id;
     const leagueAdminId = league.admin?._id || league.admin;
-    
-    console.log('🔍 Frontend Admin Check:', {
-      userId: userId,
-      leagueAdminId: leagueAdminId,
-      leagueName: league?.name
-    });
     
     // Convert both to string for comparison (handles ObjectId and string)
     return userId && leagueAdminId && userId.toString() === leagueAdminId.toString();
@@ -702,8 +663,7 @@ const LeaguesContent = () => {
               })}
             </div>
           </motion.div>
-
-          <motion.div
+                        <motion.div
             className="bg-gradient-to-r from-yellow-500 to-orange-500 rounded-3xl p-4 shadow-2xl text-white mb-6"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -1162,18 +1122,10 @@ const LeaguesContent = () => {
               })}
             </div>
           </motion.div>
+          
         </>
       )}
     </PageLayout>
-  );
-};
-
-// Main Leagues component with error boundary
-const Leagues = () => {
-  return (
-    <ErrorBoundary>
-      <LeaguesContent />
-    </ErrorBoundary>
   );
 };
 
