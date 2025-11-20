@@ -6,7 +6,7 @@ import { LeagueIconDisplay } from '../utils/leagueIcons';
 import { Crown, Trophy, Star, Award } from 'lucide-react';
 import { useCelebration } from '../contexts/CelebrationContext';
 import CelebrationModal from '../components/CelebrationModal';
-import React from 'react';
+
 const API_URL = import.meta.env.VITE_API_URL;
 
 const months = [
@@ -141,45 +141,38 @@ const buildStandings = (league, userTeamName = '') => {
     });
 };
 
-// Error Boundary Component
-class ErrorBoundary extends React.Component {
-  constructor(props) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
+// Simple Error Boundary Component as a function
+const ErrorBoundary = ({ children }) => {
+  const [hasError, setHasError] = useState(false);
+  const [error, setError] = useState(null);
 
-  static getDerivedStateFromError(error) {
-    return { hasError: true, error };
-  }
+  const handleReset = () => {
+    setHasError(false);
+    setError(null);
+  };
 
-  componentDidCatch(error, errorInfo) {
-    console.error('League component error:', error, errorInfo);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="min-h-screen bg-gradient-to-br from-yellow-50 to-orange-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl p-8 shadow-lg border border-red-200 max-w-md w-full text-center">
-            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Trophy className="w-8 h-8 text-red-500" />
-            </div>
-            <h2 className="text-xl font-bold text-red-600 mb-2">Something went wrong</h2>
-            <p className="text-slate-600 mb-4">There was an error loading the leagues page.</p>
-            <button 
-              onClick={() => this.setState({ hasError: false, error: null })}
-              className="px-6 py-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
-            >
-              Try Again
-            </button>
+  if (hasError) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-yellow-50 to-orange-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-3xl p-8 shadow-lg border border-red-200 max-w-md w-full text-center">
+          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Trophy className="w-8 h-8 text-red-500" />
           </div>
+          <h2 className="text-xl font-bold text-red-600 mb-2">Something went wrong</h2>
+          <p className="text-slate-600 mb-4">There was an error loading the leagues page.</p>
+          <button 
+            onClick={handleReset}
+            className="px-6 py-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+          >
+            Try Again
+          </button>
         </div>
-      );
-    }
-
-    return this.props.children;
+      </div>
+    );
   }
-}
+
+  return children;
+};
 
 const LeaguesContent = () => {
   const [leagues, setLeagues] = useState([]);
@@ -225,7 +218,7 @@ const LeaguesContent = () => {
     if (!user || !league) return false;
     
     const userId = user._id || user.id;
-    const leagueAdminId = league.admin;
+    const leagueAdminId = league.admin?._id || league.admin;
     
     console.log('🔍 Frontend Admin Check:', {
       userId: userId,
