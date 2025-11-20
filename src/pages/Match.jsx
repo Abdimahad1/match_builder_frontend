@@ -394,38 +394,43 @@ const Match = () => {
     showAlert("Join code copied to clipboard!", true);
   };
 
-  const updateMatchResult = async (matchId, homeGoals, awayGoals) => {
-    if (!isAdmin) {
-      showAlert("Only admins can update match results", false);
-      return;
-    }
+const updateMatchResult = async (matchId, homeGoals, awayGoals) => {
+  // Check if user is admin for the current league
+  if (!isAdmin || !currentLeague || currentLeague.admin._id !== user?._id) {
+    showAlert("Only the league admin can update match results", false);
+    return;
+  }
 
-    try {
-      setLoading(true);
-      const token = localStorage.getItem('token');
-      const res = await axios.put(`${API_URL}/api/leagues/match/${matchId}/result`, 
-        {
-          homeGoals: parseInt(homeGoals),
-          awayGoals: parseInt(awayGoals)
-        },
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
-      );
-
-      if (res.data.success) {
-        showAlert("Match result updated successfully!", true);
-        setEditingMatch(null);
-        setTempScores({});
-        await fetchLeagueData();
+  try {
+    setLoading(true);
+    const token = localStorage.getItem('token');
+    const res = await axios.put(`${API_URL}/api/leagues/match/${matchId}/result`, 
+      {
+        homeGoals: parseInt(homeGoals),
+        awayGoals: parseInt(awayGoals)
+      },
+      {
+        headers: { Authorization: `Bearer ${token}` }
       }
-    } catch (err) {
-      console.error("Error updating match:", err);
-      showAlert(err.response?.data?.message || "Failed to update match result", false);
-    } finally {
-      setLoading(false);
+    );
+
+    if (res.data.success) {
+      showAlert("Match result updated successfully!", true);
+      setEditingMatch(null);
+      setTempScores({});
+      await fetchLeagueData();
     }
-  };
+  } catch (err) {
+    console.error("Error updating match:", err);
+    if (err.response?.status === 403) {
+      showAlert("Only league admin can update match results", false);
+    } else {
+      showAlert(err.response?.data?.message || "Failed to update match result", false);
+    }
+  } finally {
+    setLoading(false);
+  }
+};
 
   const startEditingMatch = (match) => {
     if (!isAdmin) return;

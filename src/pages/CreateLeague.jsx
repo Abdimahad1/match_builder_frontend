@@ -406,29 +406,19 @@ export default function CreateLeague() {
 
   // FIXED: Check if user is admin of a league
 // FIXED: Check if user is admin of a league - without useCallback to prevent loops
-const checkIfUserIsAdmin = (league) => {
-  if (!user || !league) {
-    console.log('❌ Frontend Admin Check: Missing user or league');
+const checkIfUserIsAdmin = useCallback((league) => {
+  if (!user || !league || !league.admin) {
     return false;
   }
   
   const userId = user._id || user.id;
-  const leagueAdminId = league.admin?._id || league.admin;
-  
-  console.log('🔍 Frontend Admin Check:', {
-    currentUser: user.username,
-    currentUserId: userId,
-    leagueAdminId: leagueAdminId,
-    leagueName: league?.name,
-    leagueAdmin: league.admin
-  });
+  const leagueAdminId = league.admin._id || league.admin;
   
   // Convert both to string for comparison (handles ObjectId and string)
   const isAdmin = userId && leagueAdminId && userId.toString() === leagueAdminId.toString();
-  console.log('🔍 Frontend Admin Result:', isAdmin);
   
   return isAdmin;
-};
+}, [user]); // Only re-run when user changes
 
   const beginEditResult = (match) => {
     if (!match || !match._id) {
@@ -448,78 +438,75 @@ const checkIfUserIsAdmin = (league) => {
   };
 
   // FIXED: Save match result with better error handling and prevents double counting
-  const saveMatchResult = async (leagueId, matchId) => {
-    const h = tempHomeGoals === "" ? 0 : parseInt(tempHomeGoals, 10);
-    const a = tempAwayGoals === "" ? 0 : parseInt(tempAwayGoals, 10);
+const saveMatchResult = async (leagueId, matchId) => {
+  const h = tempHomeGoals === "" ? 0 : parseInt(tempHomeGoals, 10);
+  const a = tempAwayGoals === "" ? 0 : parseInt(tempAwayGoals, 10);
+  
+  if (isNaN(h) || isNaN(a) || h < 0 || a < 0) {
+    showAlert("Please enter valid non-negative numbers for goals", false);
+    return;
+  }
+  
+  try {
+    setSavingResult(true);
+    const token = localStorage.getItem('token');
     
-    if (isNaN(h) || isNaN(a) || h < 0 || a < 0) {
-      showAlert("Please enter valid non-negative numbers for goals", false);
-      return;
+    const res = await fetch(`${API_URL}/api/leagues/match/${matchId}/result`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": token ? `Bearer ${token}` : ''
+      },
+      body: JSON.stringify({ 
+        homeGoals: h, 
+        awayGoals: a 
+      })
+    });
+
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({ message: 'Failed to update match result' }));
+      throw new Error(errorData.message || `HTTP error! status: ${res.status}`);
     }
+
+    const data = await res.json();
     
-    try {
-      setSavingResult(true);
-      const token = localStorage.getItem('token');
+    if (data.success) {
+      showAlert("Match result saved successfully!", true);
       
-      // Enhanced request with better error handling
-      const res = await fetch(`${API_URL}/api/leagues/match/${matchId}/result`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": token ? `Bearer ${token}` : ''
-        },
-        body: JSON.stringify({ 
-          homeGoals: h, 
-          awayGoals: a 
-        })
-      });
-
-      // Check if response is ok first
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({ message: 'Failed to update match result' }));
-        throw new Error(errorData.message || `HTTP error! status: ${res.status}`);
-      }
-
-      const data = await res.json();
+      // Refresh the leagues data
+      await fetchLeagues();
       
-      if (data.success) {
-        showAlert("Match result saved successfully!", true);
-        
-        // Refresh the leagues data
-        await fetchLeagues();
-        
-        // Update the selected league with fresh data
-        if (selectedLeagueForMatches) {
-          const freshLeagues = await fetchLeagues({ silent: true });
-          if (freshLeagues && freshLeagues.success) {
-            const updatedLeague = freshLeagues.data.find(l => l._id === leagueId);
-            if (updatedLeague) {
-              setSelectedLeagueForMatches(updatedLeague);
-            }
+      // Update the selected league with fresh data
+      if (selectedLeagueForMatches) {
+        const freshLeagues = await fetchLeagues({ silent: true });
+        if (freshLeagues && freshLeagues.success) {
+          const updatedLeague = freshLeagues.data.find(l => l._id === leagueId);
+          if (updatedLeague) {
+            setSelectedLeagueForMatches(updatedLeague);
           }
         }
-        
-        cancelEditResult();
-      } else {
-        showAlert(data.message || "Failed to save match result", false);
       }
-    } catch (err) {
-      console.error('Error saving match result:', err);
       
-      // More specific error messages
-      if (err.message.includes('500') || err.message.includes('Internal Server Error')) {
-        showAlert("Server error: Unable to save match result. Please try again.", false);
-      } else if (err.message.includes('403')) {
-        showAlert("Permission denied: Only league admin can update match results.", false);
-      } else if (err.message.includes('401')) {
-        showAlert("Authentication required. Please log in again.", false);
-      } else {
-        showAlert(err.message || "Failed to save match result", false);
-      }
-    } finally {
-      setSavingResult(false);
+      cancelEditResult();
+    } else {
+      showAlert(data.message || "Failed to save match result", false);
     }
-  };
+  } catch (err) {
+    console.error('Error saving match result:', err);
+    
+    if (err.message.includes('500') || err.message.includes('Internal Server Error')) {
+      showAlert("Server error: Unable to save match result. Please try again.", false);
+    } else if (err.message.includes('403')) {
+      showAlert("Permission denied: Only league admin can update match results.", false);
+    } else if (err.message.includes('401')) {
+      showAlert("Authentication required. Please log in again.", false);
+    } else {
+      showAlert(err.message || "Failed to save match result", false);
+    }
+  } finally {
+    setSavingResult(false);
+  }
+};
 
   // Shuffle participants order (admin, draft)
   const shuffleParticipants = async (league) => {
@@ -618,9 +605,9 @@ const checkIfUserIsAdmin = (league) => {
 
   // FIXED: Check if user can edit matches
 // FIXED: Check if user can edit matches
-const canEditMatch = (league) => {
+const canEditMatch = useCallback((league) => {
   return checkIfUserIsAdmin(league);
-};
+}, [checkIfUserIsAdmin]);
 
   return (
     <PageLayout
