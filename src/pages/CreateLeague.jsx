@@ -404,21 +404,30 @@ export default function CreateLeague() {
   };
 
   // FIXED: Check if user is admin of a league
-  const checkIfUserIsAdmin = useCallback((league) => {
-    if (!user || !league) return false;
-    
-    const userId = user._id || user.id;
-    const leagueAdminId = league.admin?._id || league.admin;
-    
-    console.log('🔍 Frontend Admin Check:', {
-      userId: userId,
-      leagueAdminId: leagueAdminId,
-      leagueName: league?.name
-    });
-    
-    // Convert both to string for comparison (handles ObjectId and string)
-    return userId && leagueAdminId && userId.toString() === leagueAdminId.toString();
-  }, [user]);
+// FIXED: Check if user is admin of a league
+const checkIfUserIsAdmin = useCallback((league) => {
+  if (!user || !league) {
+    console.log('❌ Frontend Admin Check: Missing user or league');
+    return false;
+  }
+  
+  const userId = user._id || user.id;
+  const leagueAdminId = league.admin?._id || league.admin;
+  
+  console.log('🔍 Frontend Admin Check:', {
+    currentUser: user.username,
+    currentUserId: userId,
+    leagueAdminId: leagueAdminId,
+    leagueName: league?.name,
+    leagueAdmin: league.admin
+  });
+  
+  // Convert both to string for comparison (handles ObjectId and string)
+  const isAdmin = userId && leagueAdminId && userId.toString() === leagueAdminId.toString();
+  console.log('🔍 Frontend Admin Result:', isAdmin);
+  
+  return isAdmin;
+}, [user]);
 
   const beginEditResult = (match) => {
     if (!match || !match._id) {
