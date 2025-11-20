@@ -405,8 +405,8 @@ export default function CreateLeague() {
   };
 
   // FIXED: Check if user is admin of a league
-// FIXED: Check if user is admin of a league
-const checkIfUserIsAdmin = useCallback((league) => {
+// FIXED: Check if user is admin of a league - without useCallback to prevent loops
+const checkIfUserIsAdmin = (league) => {
   if (!user || !league) {
     console.log('❌ Frontend Admin Check: Missing user or league');
     return false;
@@ -428,7 +428,7 @@ const checkIfUserIsAdmin = useCallback((league) => {
   console.log('🔍 Frontend Admin Result:', isAdmin);
   
   return isAdmin;
-}, [user]);
+};
 
   const beginEditResult = (match) => {
     if (!match || !match._id) {
@@ -617,9 +617,10 @@ const checkIfUserIsAdmin = useCallback((league) => {
   };
 
   // FIXED: Check if user can edit matches
-  const canEditMatch = (league) => {
-    return checkIfUserIsAdmin(league);
-  };
+// FIXED: Check if user can edit matches
+const canEditMatch = (league) => {
+  return checkIfUserIsAdmin(league);
+};
 
   return (
     <PageLayout
